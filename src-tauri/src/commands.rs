@@ -31,7 +31,7 @@ pub fn get_html_injection_snippet() -> Result<String, String> {
     // 将字节数组转换为字符串
     let html_content = String::from_utf8(DOWNLOAD_INTERCEPTOR_HTML.to_vec())
         .map_err(|e| format!("HTML内容解码失败: {:?}", e))?;
-    
+
     log_info!("成功获取HTML注入片段，长度: {} 字节", html_content.len());
     Ok(html_content)
 }
