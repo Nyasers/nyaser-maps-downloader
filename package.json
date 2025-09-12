@@ -1,0 +1,19 @@
+{
+  "name": "nyaser-maps-downloader",
+  "displayName": "Nyaser Maps Downloader",
+  "private": true,
+  "version": "1.2.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "pretauri": "node minify.js"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "html-minifier-terser": "^7.2.0"
+  },
+  "dependencies": {
+    "@tauri-apps/plugin-dialog": "^2.4.0"
+  },
+  "packageManager": "pnpm@10.16.0+sha512.8066e7b034217b700a9a4dbb3a005061d641ba130a89915213a10b3ca4919c19c037bec8066afdc559b89635fdb806b16ea673f2468fbb28aabfa13c53e3f769"
+}

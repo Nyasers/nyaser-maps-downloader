@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "https://maps.nyase.ru"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "dialog:default"
+  ]
+}

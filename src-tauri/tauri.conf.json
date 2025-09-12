@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Nyaser Maps Downloader",
+  "version": "1.2.0",
+  "identifier": "top.nyaser.maps",
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Nyaser Maps Downloader",
+        "width": 800,
+        "height": 600,
+        "url": "https://maps.nyase.ru",
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' https://maps.nyase.ru file://* 'unsafe-inline' 'unsafe-eval'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "silent": true,
+        "type": "embedBootstrapper"
+      }
+    }
+  }
+}
