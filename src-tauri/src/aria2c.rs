@@ -95,6 +95,8 @@ pub struct Aria2RpcManager {
     process: Option<Child>,
     // 进程ID
     pub pid: u32,
+    // 标记进程是否被监控
+    is_monitored: AtomicBool,
 }
 
 impl Clone for Aria2RpcManager {
@@ -104,6 +106,7 @@ impl Clone for Aria2RpcManager {
             secret: self.secret.clone(),
             process: None, // 克隆时不包含进程句柄
             pid: self.pid,
+            is_monitored: AtomicBool::new(self.is_monitored.load(Ordering::Relaxed)),
         }
     }
 }
@@ -146,12 +149,18 @@ impl Aria2RpcManager {
                     log_info!("成功复用现有aria2c实例");
 
                     // 创建一个不包含进程句柄的管理器实例，因为进程是外部创建的
-                    return Ok(Aria2RpcManager {
+                    let manager = Aria2RpcManager {
                         url: last_url,
                         secret: last_secret,
                         process: None, // 不拥有外部进程的句柄
                         pid: last_pid,
-                    });
+                        is_monitored: AtomicBool::new(false),
+                    };
+
+                    // 启动进程监控
+                    manager.start_process_monitoring();
+
+                    return Ok(manager);
                 } else {
                     log_warn!("现有aria2c实例连接失败，将创建新实例");
                 }
@@ -172,12 +181,115 @@ impl Aria2RpcManager {
         *LAST_ARIA2_INFO.lock().unwrap() = Some((port, secret.clone(), pid));
         log_info!("保存aria2c信息用于下次复用: 端口={}, PID={}", port, pid);
 
-        Ok(Aria2RpcManager {
+        let manager = Aria2RpcManager {
             url,
             secret,
             process: Some(process),
             pid,
-        })
+            is_monitored: AtomicBool::new(false),
+        };
+
+        // 启动进程监控
+        manager.start_process_monitoring();
+
+        Ok(manager)
+    }
+
+    // 启动aria2c进程监控
+    pub fn start_process_monitoring(&self) {
+        // 检查是否已经在监控
+        if !self
+            .is_monitored
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .unwrap_or(true)
+        {
+            log_info!("开始监控aria2c进程: PID={}", self.pid);
+
+            let pid = self.pid;
+            let _secret = self.secret.clone(); // 保留但标记为未使用
+            let _url = self.url.clone(); // 保留但标记为未使用
+
+            // 创建新线程进行监控
+            std::thread::spawn(move || {
+                let check_interval = Duration::from_secs(3); // 每3秒检查一次
+
+                loop {
+                    // 检查应用是否正在关闭，如果是则结束监控
+                    if is_app_shutting_down() {
+                        log_info!("检测到应用正在关闭，结束aria2c进程监控");
+                        break;
+                    }
+
+                    // 等待检查间隔
+                    std::thread::sleep(check_interval);
+
+                    // 检查进程是否仍在运行
+                    if !is_process_running(pid) {
+                        log_error!("检测到aria2c进程意外关闭: PID={}", pid);
+
+                        // 尝试通知全局管理器进行重启
+                        if let Ok(mut manager) = ARIA2_RPC_MANAGER.lock() {
+                            if let Some(current_manager) = manager.as_ref() {
+                                if current_manager.pid == pid {
+                                    log_info!("准备重启aria2c服务");
+
+                                    // 从上次保存的信息中获取端口和密钥
+                                    if let Some((last_port, last_secret, _)) =
+                                        { (*LAST_ARIA2_INFO.lock().unwrap()).clone() }
+                                    {
+                                        log_info!(
+                                            "尝试使用上次的配置重启aria2c: 端口={}",
+                                            last_port
+                                        );
+
+                                        match start_aria2c_rpc_server(last_port, &last_secret) {
+                                            Ok(process) => {
+                                                let new_pid = process.id();
+                                                log_info!("aria2c服务重启成功，新PID: {}", new_pid);
+
+                                                // 更新管理器信息
+                                                *manager = Some(Aria2RpcManager {
+                                                    url: format!(
+                                                        "http://localhost:{}/jsonrpc",
+                                                        last_port
+                                                    ),
+                                                    secret: last_secret.clone(),
+                                                    process: Some(process),
+                                                    pid: new_pid,
+                                                    is_monitored: AtomicBool::new(false),
+                                                });
+
+                                                // 更新上次成功启动的信息
+                                                *LAST_ARIA2_INFO.lock().unwrap() =
+                                                    Some((last_port, last_secret, new_pid));
+
+                                                // 重启监控
+                                                if let Some(new_manager) = manager.as_ref() {
+                                                    new_manager.start_process_monitoring();
+                                                }
+                                            }
+                                            Err(e) => {
+                                                log_error!("重启aria2c服务失败: {}", e);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 结束当前监控线程
+                        break;
+                    }
+                }
+            });
+        }
+    }
+
+    // 检查aria2c进程是否正常运行
+    // 注意：当前版本中未使用此方法，但保留供将来扩展使用
+    #[allow(dead_code)]
+    pub fn is_process_alive(&self) -> bool {
+        is_process_running(self.pid)
     }
 
     // 添加下载任务到RPC服务器
@@ -238,12 +350,15 @@ impl Aria2RpcManager {
 
     // 关闭RPC服务器
     pub fn shutdown(&mut self) {
-        log_info!("关闭Aria2 RPC服务器");
+        log_info!("关闭Aria2 RPC服务器: PID={}", self.pid);
+
+        // 设置监控标志为true，表示不再监控此进程
+        self.is_monitored.store(true, Ordering::Relaxed);
 
         if let Some(mut process) = self.process.take() {
             let _ = process.kill();
-            let _ = process.wait();
-            log_info!("Aria2 RPC服务器已关闭");
+            // 移除process.wait()调用，避免阻塞清理过程
+            log_info!("Aria2 RPC服务器已发送终止信号");
         }
     }
 }
@@ -878,23 +993,27 @@ pub fn initialize_aria2c_backend() -> Result<(), String> {
 pub fn cleanup_aria2c_resources() {
     log_info!("应用关闭时清理aria2c资源...");
 
-    // 关闭RPC管理器
-    if let Ok(mut manager) = ARIA2_RPC_MANAGER.lock() {
-        if let Some(mut rpc_manager) = manager.take() {
+    // 关闭RPC管理器 - 使用try_lock避免在应用关闭时阻塞
+    if let Ok(mut manager_guard) = ARIA2_RPC_MANAGER.try_lock() {
+        if let Some(mut rpc_manager) = manager_guard.take() {
             rpc_manager.shutdown();
         }
+    } else {
+        log_warn!("无法获取RPC管理器锁，跳过关闭RPC管理器");
     }
 
-    // 清理所有运行中的aria2c进程
-    if let Ok(mut pids) = RUNNING_ARIA2_PIDS.lock() {
-        for pid in pids.drain() {
+    // 清理所有运行中的aria2c进程 - 使用try_lock避免在应用关闭时阻塞
+    if let Ok(mut pids_guard) = RUNNING_ARIA2_PIDS.try_lock() {
+        for pid in pids_guard.drain() {
             log_info!("尝试终止aria2c进程: {}", pid);
-            // 在Windows上，我们可以使用taskkill命令终止进程，但配置为隐藏窗口
+            // 在Windows上，使用taskkill命令强制终止进程，隐藏窗口，并且不等待命令完成
             let _ = Command::new("taskkill")
                 .args(["/F", "/PID", &pid.to_string()])
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW 标志，隐藏命令行窗口
-                .output();
+                .spawn(); // 使用spawn而不是output，避免阻塞清理过程
         }
+    } else {
+        log_warn!("无法获取进程ID列表锁，跳过强制终止aria2c进程");
     }
 
     log_info!("aria2c资源清理完成");

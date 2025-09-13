@@ -400,7 +400,7 @@
           lastUpdateTimes.set(taskId, Date.now());
 
           // 更新进度信息
-          const progressPercent = Math.round(progress);
+          const progressPercent = progress.toFixed(1); // 保留一位小数
           task.progress.style.width = `${progressPercent}%`;
           task.progressText.textContent = `${progressPercent}%`;
           task.status.textContent = '正在下载...';

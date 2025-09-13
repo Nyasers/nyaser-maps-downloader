@@ -13,8 +13,6 @@ async fn handle_signals() {
     tokio::signal::ctrl_c().await.expect("无法等待Ctrl+C信号");
     // 收到信号后清理资源
     init::cleanup_app_resources();
-    // 退出程序
-    std::process::exit(0);
 }
 
 // 主入口函数
