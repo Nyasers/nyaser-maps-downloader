@@ -1,15 +1,12 @@
 // 日志工具模块
 // 此模块包含所有日志相关的辅助函数和宏定义
-#[cfg(debug_assertions)]
 use chrono::DateTime;
-#[cfg(debug_assertions)]
 use std::{
     io::BufRead,
     time::{Duration, SystemTime},
 };
 
 /// 辅助函数：获取当前时间的格式化字符串
-#[cfg(debug_assertions)]
 pub fn get_current_time() -> String {
     let now = SystemTime::now();
     let since_epoch = now
@@ -22,15 +19,8 @@ pub fn get_current_time() -> String {
 
 /// 记录日志的辅助函数
 pub fn log_message(level: &str, message: &str) {
-    #[cfg(debug_assertions)]
-    {
-        let timestamp = get_current_time();
-        println!("[{}] [{}] {}", timestamp, level, message);
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        _ = (level, message);
-    }
+    let timestamp = get_current_time();
+    println!("[{}] [{}] {}", timestamp, level, message);
 }
 
 /// 日志宏定义 - 信息级别

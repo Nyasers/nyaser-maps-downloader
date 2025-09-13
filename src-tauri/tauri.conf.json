@@ -34,7 +34,7 @@
     "windows": {
       "webviewInstallMode": {
         "silent": true,
-        "type": "embedBootstrapper"
+        "type": "downloadBootstrapper"
       }
     }
   }
