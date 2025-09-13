@@ -453,6 +453,37 @@
           }
         });
 
+        // 监听解压进度事件
+        const extractProgressUnlisten = listen('extract-progress', (event) => {
+          // 接收到解压进度事件
+          const { progress, filename, taskId, rawOutput } = event.payload || {};
+          if (!taskId) return; // 如果没有taskId，忽略此事件
+
+          // 对文件名进行URL解码
+          const decodedFilename = filename ? decodeURIComponent(filename) : '未知文件';
+
+          // 确保容器可见
+          downloadsContainer.style.display = 'flex';
+
+          // 获取任务元素
+          const task = activeTasks.get(taskId);
+          if (task) {
+            // 更新最后活动时间
+            lastUpdateTimes.set(taskId, Date.now());
+
+            // 更新进度信息
+            const progressPercent = progress.toFixed(1); // 保留一位小数
+            task.progress.style.width = `${progressPercent}%`;
+            task.progressText.textContent = `${progressPercent}%`;
+            task.status.textContent = '解压中';
+
+            // 更新原始输出信息
+            if (rawOutput && task.rawOutput) {
+              task.rawOutput.textContent = rawOutput;
+            }
+          }
+        });
+
         // 监听解压完成事件
         const completeUnlisten = listen('extract-complete', (event) => {
           // 接收到解压完成事件

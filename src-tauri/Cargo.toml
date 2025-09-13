@@ -1,6 +1,6 @@
 [package]
 name = "nyaser-maps-downloader"
-version = "1.2.1"
+version = "1.2.2"
 description = "A Tauri App for downloading L4D2 maps (Windows only)"
 authors = ["Nyaser"]
 edition = "2021"
@@ -28,5 +28,4 @@ regex = "1.10.3"
 tauri-plugin-dialog = "2"
 tokio = { version = "1.47.1", features = ["time", "signal"] }
 chrono = "0.4.42"
-reqwest = { version = "0.11", features = ["json"] }
 winapi = { version = "0.3.9", features = ["fileapi", "winbase", "libloaderapi"] }

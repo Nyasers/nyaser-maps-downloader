@@ -34,6 +34,7 @@ use crate::{
     dir_manager::{
         cleanup_temp_dir, get_global_temp_dir, get_l4d2_addons_dir, set_global_extract_dir,
     },
+    download_manager::initialize_7z_resources,
     log_info,
 };
 
@@ -93,6 +94,9 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
         }
         Ok(()) => {}
     }
+
+    // 初始化7z资源（与aria2c一样，在应用启动时释放）
+    initialize_7z_resources();
 
     // 尝试自动获取 Left 4 Dead 2 的addons目录
     match get_l4d2_addons_dir() {

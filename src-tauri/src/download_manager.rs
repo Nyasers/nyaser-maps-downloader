@@ -19,7 +19,8 @@ use tokio::time;
 // 内部模块导入
 use crate::{
     aria2c::download_via_aria2, dialog_manager::show_dialog, dir_manager::get_global_temp_dir,
-    init::is_app_shutting_down, log_debug, log_error, log_info, log_warn,
+    init::is_app_shutting_down, log_debug, log_error, log_info, log_utils::redirect_process_output,
+    log_warn,
 };
 
 /// 下载任务结构体 - 表示一个地图下载任务的基本信息
@@ -599,7 +600,11 @@ pub async fn process_extract_queue() {
                         extract_task_id,
                         task.file_path
                     );
-                    let result = extract_with_7zip(&task.file_path, &task.extract_dir);
+                    let result = extract_with_7zip(
+                        &task.file_path,
+                        &task.extract_dir,
+                        &task.download_task_id,
+                    );
 
                     // 定义最大重试次数和解压重试函数
                     const MAX_RETRY_COUNT: u32 = 3;
@@ -625,7 +630,11 @@ pub async fn process_extract_queue() {
                             extract_task_id,
                             retry_count
                         );
-                        final_result = extract_with_7zip(&task.file_path, &task.extract_dir);
+                        final_result = extract_with_7zip(
+                            &task.file_path,
+                            &task.extract_dir,
+                            &task.download_task_id,
+                        );
                     }
 
                     // 只有在解压成功的情况下才删除临时文件
@@ -731,21 +740,64 @@ pub async fn process_extract_queue() {
     }
 }
 
-// 嵌入7za.exe作为资源
-const SEVENZ_EXE_BYTES: &[u8] = include_bytes!("../bin/7za.exe");
+// 嵌入7zG.exe、7z.dll和语言文件作为资源
+const SEVENZG_EXE_BYTES: &[u8] = include_bytes!("../bin/7zG.exe");
+const SEVENZ_DLL_BYTES: &[u8] = include_bytes!("../bin/7z.dll");
+const LANG_ZH_CN_BYTES: &[u8] = include_bytes!("../bin/Lang/zh-cn.txt");
 
-/// 从嵌入式资源中释放7za.exe到临时目录
+// 全局标志，表示7z资源是否已释放
+lazy_static::lazy_static! {
+    static ref SEVENZ_RESOURCES_RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+}
+
+/// 检查7z资源文件是否存在
+fn check_7z_resources_exist(temp_dir: &PathBuf) -> bool {
+    let sevenzg_exe_path = temp_dir.join("7zG.exe");
+    let sevenz_dll_path = temp_dir.join("7z.dll");
+    let lang_file_path = temp_dir.join("Lang").join("zh-cn.txt");
+
+    sevenzg_exe_path.exists() && sevenz_dll_path.exists() && lang_file_path.exists()
+}
+
+/// 从嵌入式资源中释放7zG.exe、7z.dll和语言文件到临时目录
 ///
-/// 这是一个内部辅助函数，仅在需要时被调用
-fn release_7za_exe() -> Result<PathBuf, String> {
+/// 这是一个内部辅助函数，应用启动时调用一次，也可以在需要时重新调用
+pub fn release_7z_resources() -> Result<PathBuf, String> {
     // 获取统一的临时目录
     let temp_dir = get_global_temp_dir()?;
 
-    // 释放资源到临时文件
-    let temp_path = temp_dir.join("7za.exe");
-    if let Err(err) = fs::write(&temp_path, SEVENZ_EXE_BYTES) {
-        log_error!("无法写入7za.exe到临时目录: {:?}", err);
-        return Err(format!("无法写入7za.exe到临时目录: {:?}", err));
+    // 检查资源是否已存在，如果存在则直接返回路径，避免重复释放
+    if check_7z_resources_exist(&temp_dir) {
+        log_debug!("7z资源已存在，不需要重新释放");
+        return Ok(temp_dir.join("7zG.exe"));
+    }
+
+    // 创建Lang子目录
+    let lang_dir = temp_dir.join("Lang");
+    if let Err(err) = fs::create_dir_all(&lang_dir) {
+        log_error!("无法创建Lang目录: {:?}", err);
+        return Err(format!("无法创建Lang目录: {:?}", err));
+    }
+
+    // 释放7zG.exe
+    let sevenzg_exe_path = temp_dir.join("7zG.exe");
+    if let Err(err) = fs::write(&sevenzg_exe_path, SEVENZG_EXE_BYTES) {
+        log_error!("无法写入7zG.exe到临时目录: {:?}", err);
+        return Err(format!("无法写入7zG.exe到临时目录: {:?}", err));
+    }
+
+    // 释放7z.dll
+    let sevenz_dll_path = temp_dir.join("7z.dll");
+    if let Err(err) = fs::write(&sevenz_dll_path, SEVENZ_DLL_BYTES) {
+        log_error!("无法写入7z.dll到临时目录: {:?}", err);
+        return Err(format!("无法写入7z.dll到临时目录: {:?}", err));
+    }
+
+    // 释放语言文件
+    let lang_file_path = lang_dir.join("zh-cn.txt");
+    if let Err(err) = fs::write(&lang_file_path, LANG_ZH_CN_BYTES) {
+        log_error!("无法写入zh-cn.txt到临时目录: {:?}", err);
+        return Err(format!("无法写入zh-cn.txt到临时目录: {:?}", err));
     }
 
     // 确保文件可执行
@@ -755,27 +807,56 @@ fn release_7za_exe() -> Result<PathBuf, String> {
         use winapi::um::fileapi::SetFileAttributesW;
         use winapi::um::winnt::FILE_ATTRIBUTE_NORMAL;
 
-        let path_wide: Vec<u16> = temp_path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let path_wide: Vec<u16> = sevenzg_exe_path
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
         SetFileAttributesW(path_wide.as_ptr(), FILE_ATTRIBUTE_NORMAL);
     }
 
-    log_debug!("7za.exe已成功释放到临时目录: {}", temp_path.display());
-    Ok(temp_path)
+    // 设置资源已释放标志
+    SEVENZ_RESOURCES_RELEASED.store(true, std::sync::atomic::Ordering::Relaxed);
+
+    log_debug!(
+        "7zG.exe、7z.dll和语言文件已成功释放到临时目录: {}",
+        temp_dir.display()
+    );
+    Ok(sevenzg_exe_path)
 }
 
-/// 使用7za.exe解压文件 - 将压缩文件解压到指定目录
+/// 初始化7z资源 - 在应用启动时调用
+pub fn initialize_7z_resources() {
+    log_info!("应用启动时初始化7z资源...");
+
+    if let Err(e) = release_7z_resources() {
+        log_error!("初始化7z资源失败: {}", e);
+    } else {
+        log_info!("7z资源初始化成功");
+    }
+}
+
+/// 使用7zG.exe解压文件 - 将压缩文件解压到指定目录
 ///
-/// 此函数通过调用7za.exe命令行工具执行文件解压操作。
+/// 此函数通过调用7zG.exe GUI工具执行文件解压操作，并记录解压过程。
 /// 添加了7z文件格式预检查，避免尝试解压已损坏的文件。
+/// 包含7z.dll和中文语言支持文件以确保完整功能。
 ///
 /// # 参数
 /// - `file_path`: 要解压的文件路径
 /// - `extract_dir`: 解压目标目录
+/// - `app_handle`: Tauri应用句柄，用于发送进度事件
+/// - `task_id`: 任务ID，用于标识当前解压任务
+/// - `filename`: 文件名，用于在前端显示
 ///
 /// # 返回值
 /// - 成功时返回包含解压成功信息的Ok
 /// - 失败时返回包含错误信息的Err
-pub fn extract_with_7zip(file_path: &str, extract_dir: &str) -> Result<String, String> {
+pub fn extract_with_7zip(
+    file_path: &str,
+    extract_dir: &str,
+    task_id: &str,
+) -> Result<String, String> {
     log_debug!("开始解压操作: 文件={}, 目标目录={}", file_path, extract_dir);
 
     // 检查文件是否存在
@@ -857,37 +938,54 @@ pub fn extract_with_7zip(file_path: &str, extract_dir: &str) -> Result<String, S
         log_debug!("解压目录已存在: {}", extract_dir);
     }
 
-    // 从嵌入式资源获取7za.exe
-    log_debug!("尝试获取7za.exe...");
-    let sevenz_exe_path = release_7za_exe()?;
+    // 从嵌入式资源获取7zG.exe
+    log_debug!("尝试获取7zG.exe、7z.dll和语言文件...");
+    let sevenz_exe_path = release_7z_resources()?;
     let sevenz_exe_str = sevenz_exe_path
         .to_str()
-        .ok_or("无法将7za.exe路径转换为字符串".to_string())?;
+        .ok_or("无法将7zG.exe路径转换为字符串".to_string())?;
 
-    // 构建7za.exe命令行参数
-    // 使用x命令解压，-y表示自动确认所有提示
-    // 不再使用-o参数，而是将工作目录设置为解压目录
+    /*
+    构建7zG.exe命令行参数
+        使用x命令解压
+        -y表示自动确认所有提示
+        -sccUTF-8设置控制台代码页
+        -t7z指定文件类型为7z
+    */
     let args = [
-        "x",       // 解压命令
-        "-y",      // 自动确认
-        file_path, // 要解压的文件
+        "x",         // 解压命令
+        "-y",        // 自动确认
+        "-sccUTF-8", // 设置控制台代码页为UTF-8
+        "-t7z",      // 指定文件类型为7z
+        file_path,   // 要解压的文件
     ];
 
     log_debug!("执行解压命令: {} {}", sevenz_exe_str, args.join(" "));
-    log_debug!("设置工作目录为: {}", extract_dir);
 
-    // 执行7za.exe命令，设置工作目录为解压目录
+    // 执行7zG.exe命令
     let mut command = std::process::Command::new(sevenz_exe_str);
-    command.args(&args).current_dir(extract_dir); // 设置工作目录为解压目录
+    command.args(&args);
 
-    // 隐藏窗口运行
-    use std::os::windows::process::CommandExt;
+    // 7zG.exe是GUI版本，不需要隐藏窗口标志，但我们仍然捕获输出以便记录
+    command.current_dir(extract_dir); // 设置工作目录为解压目录
+    command.stdout(std::process::Stdio::piped()); // 捕获stdout
+    command.stderr(std::process::Stdio::piped()); // 捕获stderr
 
-    command.creation_flags(0x08000000); // CREATE_NO_WINDOW 标志
+    // 启动进程（非阻塞）
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("无法启动7zG.exe进程: {}", e))?;
 
-    let output = command
-        .output()
-        .map_err(|e| format!("无法执行7za.exe命令: {}", e))?;
+    // 获取stdout和stderr流并进行日志记录
+    let stdout = child.stdout.take().ok_or("无法获取stdout流")?;
+    let stderr = child.stderr.take().ok_or("无法获取stderr流")?;
+
+    redirect_process_output(stdout, stderr, format!("7zG[{}]", task_id));
+
+    // 等待进程结束并获取退出状态
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("等待7zG.exe进程结束时出错: {}", e))?;
 
     // 检查命令执行结果
     if output.status.success() {
@@ -911,7 +1009,7 @@ pub fn extract_with_7zip(file_path: &str, extract_dir: &str) -> Result<String, S
         // 解析错误输出
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        log_error!("7za.exe解压失败，stderr: {}, stdout: {}", stderr, stdout);
+        log_error!("7zG.exe解压失败，stderr: {}, stdout: {}", stderr, stdout);
         return Err(format!("解压失败: {}\n\n详细信息:\n{}", stderr, stdout));
     }
 }

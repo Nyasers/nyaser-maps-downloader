@@ -3,7 +3,10 @@
 #[cfg(debug_assertions)]
 use chrono::DateTime;
 #[cfg(debug_assertions)]
-use std::time::{Duration, SystemTime};
+use std::{
+    io::BufRead,
+    time::{Duration, SystemTime},
+};
 
 /// 辅助函数：获取当前时间的格式化字符串
 #[cfg(debug_assertions)]
@@ -52,4 +55,65 @@ macro_rules! log_error {
 #[macro_export]
 macro_rules! log_debug {
     ($($arg:tt)*) => { $crate::log_utils::log_message("DEBUG", &format!($($arg)*)) };
+}
+
+/// 重定向子进程的标准输出和标准错误到日志系统
+///
+/// # 参数
+/// - `stdout`: 子进程的标准输出流
+/// - `stderr`: 子进程的标准错误流
+/// - `prefix`: 用于日志输出的前缀字符串，通常包含进程标识或任务ID
+///
+/// # 功能说明
+/// 该函数为stdout和stderr分别创建独立的线程，持续读取输出并通过相应级别的日志函数记录。
+/// 这样可以确保子进程的输出被正确捕获并格式化显示，而不会阻塞主程序的执行。
+pub fn redirect_process_output(
+    stdout: std::process::ChildStdout,
+    stderr: std::process::ChildStderr,
+    prefix: String,
+) {
+    // 创建一个副本用于stdout线程
+    let prefix_stdout = prefix.clone();
+
+    // 为stdout创建一个线程，使用log_info级别记录输出
+    std::thread::spawn(move || {
+        let mut reader = std::io::BufReader::new(stdout);
+        let mut line = String::new();
+        loop {
+            match reader.read_line(&mut line) {
+                Ok(0) => break, // EOF，流已关闭
+                Ok(_) => {
+                    if !line.trim().is_empty() {
+                        log_info!("{} [STDOUT]: {}", prefix_stdout, line.trim());
+                    }
+                    line.clear();
+                }
+                Err(e) => {
+                    log_error!("读取stdout失败: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+
+    // 为stderr创建一个线程，使用log_error级别记录输出
+    std::thread::spawn(move || {
+        let mut reader = std::io::BufReader::new(stderr);
+        let mut line = String::new();
+        loop {
+            match reader.read_line(&mut line) {
+                Ok(0) => break, // EOF，流已关闭
+                Ok(_) => {
+                    if !line.trim().is_empty() {
+                        log_error!("{} [STDERR]: {}", prefix, line.trim());
+                    }
+                    line.clear();
+                }
+                Err(e) => {
+                    log_error!("读取stderr失败: {}", e);
+                    break;
+                }
+            }
+        }
+    });
 }

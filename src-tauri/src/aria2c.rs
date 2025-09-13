@@ -4,7 +4,6 @@
 use std::{
     collections::{HashSet, VecDeque},
     env, fs,
-    io::BufRead,
     net::TcpListener,
     os::windows::process::CommandExt,
     path::PathBuf,
@@ -26,7 +25,10 @@ use tokio::{runtime::Runtime, sync::oneshot};
 use uuid::Uuid;
 
 // 内部模块导入
-use crate::{init::is_app_shutting_down, log_debug, log_error, log_info, log_warn};
+use crate::{
+    init::is_app_shutting_down, log_debug, log_error, log_info, log_utils::redirect_process_output,
+    log_warn,
+};
 
 // 定义下载任务队列项结构
 enum PendingTask {
@@ -379,41 +381,6 @@ fn find_available_port() -> Result<u16, String> {
     Ok(addr.port())
 }
 
-// 将进程的输出重定向到日志系统
-#[allow(dead_code)]
-fn redirect_process_output(
-    stdout: std::process::ChildStdout,
-    stderr: std::process::ChildStderr,
-    prefix: String,
-) {
-    // 创建一个副本用于stdout线程
-    let prefix_stdout = prefix.clone();
-
-    // 为stdout创建一个线程
-    std::thread::spawn(move || {
-        let mut reader = std::io::BufReader::new(stdout);
-        let mut line = String::new();
-        while reader.read_line(&mut line).is_ok() {
-            if !line.trim().is_empty() {
-                log_info!("{} [STDOUT]: {}", prefix_stdout, line.trim());
-            }
-            line.clear();
-        }
-    });
-
-    // 为stderr创建一个线程（使用原始的prefix）
-    std::thread::spawn(move || {
-        let mut reader = std::io::BufReader::new(stderr);
-        let mut line = String::new();
-        while reader.read_line(&mut line).is_ok() {
-            if !line.trim().is_empty() {
-                log_error!("{} [STDERR]: {}", prefix, line.trim());
-            }
-            line.clear();
-        }
-    });
-}
-
 // 启动aria2c RPC服务器
 fn start_aria2c_rpc_server(port: u16, secret: &str) -> Result<Child, String> {
     log_info!("启动aria2c RPC服务器，端口: {}", port);
@@ -450,8 +417,8 @@ fn start_aria2c_rpc_server(port: u16, secret: &str) -> Result<Child, String> {
         .map_err(|e| format!("启动aria2c RPC服务器失败: {}", e))?;
 
     // 获取stdout和stderr流
-    let _stdout = child.stdout.take().ok_or("无法获取stdout流")?;
-    let _stderr = child.stderr.take().ok_or("无法获取stderr流")?;
+    let stdout = child.stdout.take().ok_or("无法获取stdout流")?;
+    let stderr = child.stderr.take().ok_or("无法获取stderr流")?;
 
     // 记录进程ID
     let pid = child.id();
@@ -459,8 +426,7 @@ fn start_aria2c_rpc_server(port: u16, secret: &str) -> Result<Child, String> {
     log_info!("aria2c RPC服务器启动成功，PID: {}", pid);
 
     // 重定向aria2c的输出到主程序日志
-    // let prefix = format!("aria2c[{}]", pid);
-    // redirect_process_output(stdout, stderr, prefix);
+    redirect_process_output(stdout, stderr, format!("aria2c[{}]", pid));
 
     Ok(child)
 }
