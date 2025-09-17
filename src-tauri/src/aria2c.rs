@@ -501,16 +501,12 @@ fn send_rpc_request_via_powershell(
                                 }
                             }
 
-                            log_debug!("解码后的JSON: {}", decoded_json);
                             response_text = decoded_json;
                         }
 
                         log_debug!("RPC请求成功，响应长度: {}", response_text.len());
                         // 记录完整响应内容用于调试
                         log_debug!("响应内容: {}", response_text);
-                        // 额外记录前500个字符，防止长响应被截断
-                        let preview = response_text.chars().take(500).collect::<String>();
-                        log_debug!("响应预览(前500字符): {}", preview);
                         // 检查响应是否以'{'开始，确保是有效的JSON
                         let trimmed_response = response_text.trim();
                         if trimmed_response.starts_with('{') {

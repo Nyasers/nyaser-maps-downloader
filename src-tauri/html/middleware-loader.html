@@ -49,17 +49,17 @@
             newScript.textContent = scriptElement.textContent;
             document.body.appendChild(newScript);
           });
-        } catch {}
+        } catch { }
       }
 
-      waitForTauriApi().then(loadAndInjectHtmlSnippet).catch(() => {});
+      waitForTauriApi().then(loadAndInjectHtmlSnippet).catch(() => { });
     } finally {
       try {
         const loaderElement = document.getElementById('nmd_loader');
         if (loaderElement && loaderElement.parentNode) {
           loaderElement.parentNode.removeChild(loaderElement);
         }
-      } catch {}
+      } catch { }
     }
   })();
 </script>
