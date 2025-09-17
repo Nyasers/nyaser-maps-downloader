@@ -149,7 +149,5 @@ pub fn cleanup_app_resources() {
     // 清理临时目录
     cleanup_temp_dir();
 
-    // 强制退出进程，确保应用立即关闭
-    log_info!("资源清理完成，即将退出进程...");
-    std::process::exit(0);
+    log_info!("资源清理完成，进程即将退出...");
 }

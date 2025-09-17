@@ -1,7 +1,7 @@
 <script id="nmd_loader">
   !(function () {
     try {
-      if (typeof window === 'undefined' || (typeof window.__TAURI__ === 'undefined' && window.isTauri !== true)) throw '';
+      if (typeof window === 'undefined' || (typeof window.__TAURI__ === 'undefined' && window.isTauri !== true)) return;
 
       // 等待Tauri API可用
       function waitForTauriApi() {
@@ -15,7 +15,7 @@
               resolve();
             } else if (attempts >= maxAttempts) {
               clearInterval(interval);
-              reject(new Error());
+              reject();
             }
           }, 100);
         });
@@ -24,7 +24,14 @@
       async function loadAndInjectHtmlSnippet() {
         try {
           const { invoke } = window.__TAURI__.core;
-          const htmlSnippet = await invoke('get_html_injection_snippet');
+          let htmlSnippet;
+          try {
+            // 尝试使用主要 API
+            htmlSnippet = await invoke('get_middleware');
+          } catch {
+            // 如果失败，使用旧的 API 作为后备
+            htmlSnippet = await invoke('get_html_injection_snippet');
+          }
 
           const tempDiv = document.createElement('div');
           tempDiv.innerHTML = htmlSnippet;
@@ -42,17 +49,17 @@
             newScript.textContent = scriptElement.textContent;
             document.body.appendChild(newScript);
           });
-        } finally { }
+        } catch {}
       }
 
-      waitForTauriApi().then(loadAndInjectHtmlSnippet);
+      waitForTauriApi().then(loadAndInjectHtmlSnippet).catch(() => {});
     } finally {
       try {
         const loaderElement = document.getElementById('nmd_loader');
         if (loaderElement && loaderElement.parentNode) {
           loaderElement.parentNode.removeChild(loaderElement);
         }
-      } finally { }
+      } catch {}
     }
   })();
 </script>

@@ -27,7 +27,7 @@ use crate::{
 const DOWNLOAD_INTERCEPTOR_HTML: &[u8] = include_bytes!("../html/middleware.min.html");
 
 #[tauri::command]
-pub fn get_html_injection_snippet() -> Result<String, String> {
+pub fn get_middleware() -> Result<String, String> {
     // 将字节数组转换为字符串
     let html_content = String::from_utf8(DOWNLOAD_INTERCEPTOR_HTML.to_vec())
         .map_err(|e| format!("HTML内容解码失败: {:?}", e))?;
@@ -184,9 +184,7 @@ pub async fn download(url: &str, app_handle: AppHandle) -> Result<String, String
 
         log_debug!(
             "当前队列中有 {} 个等待任务，{} 个活跃任务，总共 {} 个任务",
-            size,
-            active,
-            total
+            size, active, total
         );
         (total, size, tasks)
     };
@@ -218,8 +216,7 @@ pub async fn download(url: &str, app_handle: AppHandle) -> Result<String, String
     // 返回成功消息
     log_info!(
         "下载请求处理完成: 任务ID={}, 总任务数={}",
-        task_id,
-        total_tasks
+        task_id, total_tasks
     );
     Ok(format!(
         "任务已添加到下载队列，当前总任务数: {}",
