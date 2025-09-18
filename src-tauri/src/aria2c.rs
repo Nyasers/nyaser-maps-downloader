@@ -2,7 +2,7 @@
 
 // 标准库导入
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::HashSet,
     env, fs,
     net::TcpListener,
     os::windows::process::CommandExt,
@@ -27,10 +27,11 @@ use uuid::Uuid;
 // 内部模块导入
 use crate::{
     init::is_app_shutting_down, log_debug, log_error, log_info, log_utils::redirect_process_output,
-    log_warn,
+    log_warn, queue_manager::QueueManager,
 };
 
 // 定义下载任务队列项结构
+#[derive(Debug)]
 enum PendingTask {
     Download {
         url: String,
@@ -52,7 +53,7 @@ lazy_static! {
     static ref INIT_LOCK: Mutex<()> = Mutex::new(());
 
     // 存储aria2c初始化完成前的待处理下载任务
-    static ref PENDING_TASKS: Mutex<VecDeque<PendingTask>> = Mutex::new(VecDeque::new());
+    static ref PENDING_TASKS_MANAGER: QueueManager<PendingTask> = QueueManager::new(5);
     // RPC服务器管理单例
     static ref ARIA2_RPC_MANAGER: Mutex<Option<Aria2RpcManager>> = Mutex::new(None);
     // 保存上次成功启动的aria2c信息（端口、密钥、PID）
@@ -285,13 +286,6 @@ impl Aria2RpcManager {
                 }
             });
         }
-    }
-
-    // 检查aria2c进程是否正常运行
-    // 注意：当前版本中未使用此方法，但保留供将来扩展使用
-    #[allow(dead_code)]
-    pub fn is_process_alive(&self) -> bool {
-        is_process_running(self.pid)
     }
 
     // 添加下载任务到RPC服务器
@@ -869,39 +863,50 @@ pub fn get_rpc_manager() -> Result<&'static Mutex<Option<Aria2RpcManager>>, Stri
     Ok(&ARIA2_RPC_MANAGER)
 }
 
-/// 处理队列中的待处理下载任务
-async fn process_pending_tasks() {
-    log_info!("开始处理待处理的下载任务...");
+/// 处理队列中的单个待处理下载任务
+fn process_pending_task(task: PendingTask) {
+    match task {
+        PendingTask::Download {
+            url,
+            app_handle,
+            task_id,
+            responder,
+        } => {
+            log_info!("处理待处理的下载任务: [{}] URL={}", task_id, url);
 
-    // 获取所有待处理任务
-    let pending_tasks = {
-        let mut tasks_lock = PENDING_TASKS.lock().unwrap();
-        std::mem::take(&mut *tasks_lock)
-    };
-
-    log_info!("发现 {} 个待处理的下载任务", pending_tasks.len());
-
-    // 逐一处理每个任务
-    for task in pending_tasks {
-        match task {
-            PendingTask::Download {
-                url,
-                app_handle,
-                task_id,
-                responder,
-            } => {
-                log_info!("处理待处理的下载任务: [{}] URL={}", task_id, url);
-
+            // 在新的异步任务中执行下载
+            tauri::async_runtime::spawn(async move {
                 // 异步执行下载
                 let download_result = download_via_aria2(&url, app_handle, &task_id).await;
 
                 // 发送结果给等待的调用者
                 let _ = responder.send(download_result);
-            }
+            });
         }
     }
+}
 
-    log_info!("所有待处理的下载任务处理完成");
+/// 获取任务ID的函数
+fn get_pending_task_id(task: &PendingTask) -> String {
+    match task {
+        PendingTask::Download { task_id, .. } => task_id.clone(),
+    }
+}
+
+/// 检查是否应继续处理的函数
+fn should_continue_processing() -> bool {
+    !is_app_shutting_down()
+}
+
+/// 启动待处理任务管理器
+pub fn start_pending_tasks_manager() {
+    log_info!("启动待处理任务管理器...");
+    PENDING_TASKS_MANAGER.start_processing(
+        process_pending_task,
+        get_pending_task_id,
+        500, // 检查间隔（毫秒）
+        should_continue_processing,
+    );
 }
 
 /// 异步初始化aria2c RPC服务器
@@ -918,8 +923,8 @@ async fn initialize_aria2c_backend_async() -> Result<(), String> {
             ARIA2_INITIALIZED.store(true, Ordering::Relaxed);
             log_info!("aria2c后端初始化完成");
 
-            // 处理所有待处理的下载任务
-            process_pending_tasks().await;
+            // 启动待处理任务管理器
+            start_pending_tasks_manager();
 
             Ok(())
         }
@@ -1069,15 +1074,12 @@ pub async fn download_via_aria2(
         let (sender, receiver) = oneshot::channel();
 
         // 将任务添加到待处理队列
-        {
-            let mut tasks_lock = PENDING_TASKS.lock().unwrap();
-            tasks_lock.push_back(PendingTask::Download {
-                url: url.to_string(),
-                app_handle: app_handle.clone(),
-                task_id: task_id.to_string(),
-                responder: sender,
-            });
-        }
+        PENDING_TASKS_MANAGER.add_task(PendingTask::Download {
+            url: url.to_string(),
+            app_handle: app_handle.clone(),
+            task_id: task_id.to_string(),
+            responder: sender,
+        });
 
         log_info!("[{}] 任务已成功添加到队列，等待aria2c初始化完成", task_id);
 

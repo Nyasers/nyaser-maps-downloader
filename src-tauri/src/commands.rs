@@ -125,7 +125,7 @@ pub async fn download(url: &str, app_handle: AppHandle) -> Result<String, String
     // 添加任务到下载队列
     log_debug!("尝试锁定下载队列并添加任务...");
     {
-        let mut queue = DOWNLOAD_QUEUE.lock().unwrap();
+        let mut queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
         queue.queue.push_back(task);
         log_info!("任务已添加到下载队列，当前队列长度: {}", queue.queue.len());
     }
@@ -133,7 +133,7 @@ pub async fn download(url: &str, app_handle: AppHandle) -> Result<String, String
     // 启动下载队列处理（确保队列处理逻辑正在运行）
     log_debug!("检查下载队列处理状态...");
     {
-        let queue = DOWNLOAD_QUEUE.lock().unwrap();
+        let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
         if !queue.processing_started {
             log_info!("下载队列处理未启动，开始启动处理线程...");
             let app_handle_clone = app_handle.clone();
@@ -148,14 +148,14 @@ pub async fn download(url: &str, app_handle: AppHandle) -> Result<String, String
 
     // 额外的安全检查：如果队列不为空，但活跃任务为0，可能表示处理逻辑出现问题
     {
-        let queue = DOWNLOAD_QUEUE.lock().unwrap();
+        let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
         if !queue.queue.is_empty() && queue.active_tasks.is_empty() && queue.processing_started {
             log_warn!("下载队列有任务但无活跃任务，可能需要重置处理状态");
             // 释放锁后重新启动处理（避免死锁）
             drop(queue);
 
             // 尝试重置处理状态并重新启动
-            let mut queue_reset = DOWNLOAD_QUEUE.lock().unwrap();
+            let mut queue_reset = (&*DOWNLOAD_QUEUE).lock().unwrap();
             queue_reset.processing_started = false;
 
             let app_handle_clone = app_handle.clone();
@@ -169,7 +169,7 @@ pub async fn download(url: &str, app_handle: AppHandle) -> Result<String, String
     // 获取当前队列信息
     log_debug!("获取当前队列信息...");
     let (total_tasks, queue_size, waiting_tasks) = {
-        let queue = DOWNLOAD_QUEUE.lock().unwrap();
+        let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
         let size = queue.queue.len();
         let active = queue.active_tasks.len();
         let total = size + active;

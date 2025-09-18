@@ -7,6 +7,7 @@ mod download_manager;
 mod extract_manager;
 mod init;
 mod log_utils;
+mod queue_manager;
 
 // 异步信号处理函数
 async fn handle_signals() {
