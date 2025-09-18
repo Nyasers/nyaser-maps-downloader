@@ -4,6 +4,7 @@ mod commands;
 mod dialog_manager;
 mod dir_manager;
 mod download_manager;
+mod extract_manager;
 mod init;
 mod log_utils;
 

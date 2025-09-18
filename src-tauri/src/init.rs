@@ -34,7 +34,7 @@ use crate::{
     dir_manager::{
         cleanup_temp_dir, get_global_temp_dir, get_l4d2_addons_dir, set_global_extract_dir,
     },
-    download_manager::initialize_7z_resources,
+    extract_manager::initialize_7z_resources,
     log_info,
 };
 
