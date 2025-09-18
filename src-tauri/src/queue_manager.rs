@@ -1,7 +1,9 @@
 // 标准库导入
-use std::collections::{HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 // 第三方库导入
 use tokio::time;
