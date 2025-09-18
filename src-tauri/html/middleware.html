@@ -335,8 +335,84 @@
         findLeftToolbarBoxAndObserve();
       }
 
+      // 保存原始的window.open函数引用，用于绕过拦截器
+      const originalWindowOpen = window.open;
+
       // 启动Steam按钮观察器
       setupSteamButtonObserver();
+
+      // 简化版的按钮观察器
+      function setupButtonObserver() {
+        // 配置观察器需要观察的变动类型
+        const config = { childList: true, subtree: true };
+
+        // 创建一个回调函数来处理DOM变动
+        const buttonCallback = (mutationsList, observer) => {
+          try {
+            // 1. 尝试找到第一个目标按钮 - 改为"安装"
+            const installButton = document.querySelector("div.fileinfo > div:nth-child(3) > div > a");
+            if (installButton && installButton.textContent !== '安装') {
+              // 将按钮文本改为"安装"
+              installButton.textContent = '安装';
+              console.log('Nyaser Maps Downloader: 成功修改按钮文本为"安装"');
+            }
+
+            // 2. 尝试找到第二个目标按钮 - 复制链接按钮改为"下载"
+            const copyLinkButton = document.querySelector("div.fileinfo > div:nth-child(3) > div > button");
+            if (copyLinkButton && copyLinkButton.textContent !== '下载') {
+              // 将按钮文本改为"下载"
+              copyLinkButton.textContent = '下载';
+
+              // 移除原有的点击事件监听器并创建新按钮
+              const newButton = copyLinkButton.cloneNode(true);
+              copyLinkButton.parentNode.replaceChild(newButton, copyLinkButton);
+
+              // 添加新的点击事件处理器，使用捕获阶段确保优先处理
+              newButton.addEventListener('click', function (event) {
+                // 尝试获取链接
+                const linkElement = document.querySelector("div.fileinfo > div:nth-child(3) > div > a");
+                if (linkElement && linkElement.href) {
+                  try {
+                    console.log('Nyaser Maps Downloader: 点击下载按钮，链接地址:', linkElement.href);
+
+                    // 使用Tauri invoke调用后端的open_external_link命令
+                    if (window.__TAURI__?.core?.invoke) {
+                      console.log('Nyaser Maps Downloader: 调用后端open_external_link命令');
+                      window.__TAURI__.core.invoke('open_external_link', {
+                        url: linkElement.href
+                      }).then(result => {
+                        console.log('Nyaser Maps Downloader: 链接打开结果:', result);
+                      }).catch(err => {
+                        console.error('Nyaser Maps Downloader: 调用后端命令时出错:', err);
+                      });
+                    } else {
+                      console.error('Nyaser Maps Downloader: Tauri invoke API不可用');
+                    }
+                  } catch (e) {
+                    console.error('Nyaser Maps Downloader: 处理点击事件时出错:', e.message, e.stack);
+                  }
+                } else {
+                  console.error('Nyaser Maps Downloader: 未找到链接元素或链接地址');
+                }
+              }, true); // 使用true参数在捕获阶段执行
+
+              console.log('Nyaser Maps Downloader: 成功修改复制链接按钮为"下载"');
+            }
+          } catch (e) {
+            console.error('Nyaser Maps Downloader: 修改按钮时出错:', e);
+          }
+        };
+
+        // 创建一个观察器实例
+        const buttonObserver = new MutationObserver(buttonCallback);
+
+        // 开始观察body元素
+        if (document.body) {
+          buttonObserver.observe(document.body, config);
+          // 立即检查一次当前状态
+          buttonCallback([], buttonObserver);
+        }
+      }
 
       waitForTauri().then(tauriReady => {
         if (!tauriReady) {
@@ -347,6 +423,15 @@
         // 提取invoke和event API
         const { invoke } = window.__TAURI__.core;
         const { listen, once } = window.__TAURI__.event;
+
+        // 提取shell API
+        if (window.__TAURI__?.shell?.open) {
+          shellAPI = window.__TAURI__.shell.open;
+          console.log('Nyaser Maps Downloader: 成功初始化shell API');
+        }
+
+        // 初始化完成后再启动按钮观察器
+        setupButtonObserver();
 
         // 准备注册事件监听器
 

@@ -32,7 +32,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::download,
-            commands::get_middleware
+            commands::get_middleware,
+            commands::open_external_link
         ])
         // 添加应用启动时的初始化逻辑
         .setup(|app| Ok(init::initialize_app(app)?))

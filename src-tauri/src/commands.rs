@@ -23,8 +23,19 @@ use crate::{
 /// - 成功时返回HTML片段内容
 /// - 失败时返回错误信息
 
-// 使用include_bytes!宏将最小化的HTML片段直接嵌入到程序中
-const DOWNLOAD_INTERCEPTOR_HTML: &[u8] = include_bytes!("../html/middleware.min.html");
+// 根据构建模式选择使用的HTML文件
+// 在debug模式下使用未压缩的.html文件，在release模式下使用压缩的.min.html文件
+const DOWNLOAD_INTERCEPTOR_HTML: &[u8] = {
+    #[cfg(debug_assertions)]
+    {
+        include_bytes!("../html/middleware.html")
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        include_bytes!("../html/middleware.min.html")
+    }
+};
 
 #[tauri::command]
 pub fn get_middleware() -> Result<String, String> {
@@ -40,6 +51,65 @@ pub fn get_middleware() -> Result<String, String> {
 ///
 /// 此函数接收一个URL和应用句柄，创建下载任务并将其添加到下载队列中，
 /// 同时向前端发送任务添加和队列更新的事件通知。
+///
+/// # 参数
+/// - `url`: 要下载的文件URL
+/// - `app_handle`: Tauri应用句柄，用于发送事件通知
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+
+/// 打开外部链接函数 - 在默认浏览器中打开指定的URL
+///
+/// # 参数
+/// - `url`: 要打开的URL
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command]
+pub fn open_external_link(url: &str) -> Result<String, String> {
+    log_info!("接收到打开外部链接请求: URL={}", url);
+
+    // 在Windows上使用ShellExecuteA打开URL
+    #[cfg(target_os = "windows")]
+    {
+        use std::ffi::CString;
+        use winapi::um::shellapi::ShellExecuteA;
+        use winapi::um::winuser::SW_SHOW;
+
+        let operation = CString::new("open").unwrap();
+        let url_c = CString::new(url).unwrap();
+        let result = unsafe {
+            ShellExecuteA(
+                std::ptr::null_mut(),
+                operation.as_ptr(),
+                url_c.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOW,
+            )
+        };
+
+        if result as i32 > 32 {
+            log_info!("成功打开外部链接: URL={}", url);
+            Ok("链接已成功打开".to_string())
+        } else {
+            log_error!("打开外部链接失败: URL={}, 错误代码={:?}", url, result);
+            Err(format!("无法打开链接，错误代码: {:?}", result))
+        }
+    }
+
+    // 其他平台的实现可以在这里添加
+    #[cfg(not(target_os = "windows"))]
+    {
+        log_error!("当前平台不支持打开外部链接");
+        Err("当前平台不支持打开外部链接".to_string())
+    }
+}
+
+/// 下载函数 - 将地图下载任务添加到下载队列
 ///
 /// # 参数
 /// - `url`: 要下载的文件URL
