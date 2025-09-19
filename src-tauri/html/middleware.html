@@ -769,32 +769,9 @@
         // 将下载链接传递给后端处理
         async function handleDownloadLink(url) {
           try {
-            // 将下载链接传递给后端处理
-
-            // 尝试调用新的download函数，如果失败则回退到旧的download_and_extract_with_dialog函数
-            // 这样可以实现HTML文件对新老版本的兼容性
-            let result;
-            try {
-              // 首先尝试调用新版本的download函数
-              result = await invoke('download', {
-                url: url
-              });
-            } catch (newError) {
-              // 如果调用失败，尝试回退到旧版本的download_and_extract_with_dialog函数
-              try {
-                result = await invoke('download_and_extract_with_dialog', {
-                  url: url
-                });
-              } catch (oldError) {
-                // 两个函数都调用失败，抛出错误
-                throw newError; // 优先抛出新版本的错误信息
-              }
-            };
-
-            // 不在这里直接显示解压状态，而是等待后端发送解压事件
-            // 下载请求已发送到后端
-
-            // 移除所有自动显示解压完成的代码，完全由后端事件驱动更新UI
+            let result = await invoke('install', {
+              url: url
+            });
             return true;
           } catch (error) {
             console.error('Nyaser Maps Downloader: 处理下载链接失败:', error);
@@ -820,7 +797,6 @@
         function isDownloadLink(url) {
           if (!url) return false;
 
-          // 检查是否为特定域名下的下载链接
           if (url.startsWith('https://maps.nyase.ru/d/') ||
             url.startsWith('https://maps.nyase.ru/p/') ||
             url.includes('.7z?sign=')) {

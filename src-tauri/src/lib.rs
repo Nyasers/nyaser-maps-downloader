@@ -31,7 +31,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            commands::download,
+            commands::install,
             commands::get_middleware,
             commands::open_external_link,
             commands::open_file_manager_window,

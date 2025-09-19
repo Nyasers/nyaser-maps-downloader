@@ -419,7 +419,7 @@ pub fn delete_nmd_file(file_name: String) -> Result<String, String> {
 /// - 成功时返回包含成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 #[tauri::command(async)]
-pub async fn download(url: &str, app_handle: AppHandle) -> Result<String, String> {
+pub async fn install(url: &str, app_handle: AppHandle) -> Result<String, String> {
     log_info!("接收到下载请求: URL={}", url);
 
     // 锁定并获取目录管理器实例
