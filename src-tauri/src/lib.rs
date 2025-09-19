@@ -33,15 +33,28 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::download,
             commands::get_middleware,
-            commands::open_external_link
+            commands::open_external_link,
+            commands::open_file_manager_window,
+            commands::get_nmd_files,
+            commands::delete_nmd_file
         ])
         // 添加应用启动时的初始化逻辑
         .setup(|app| Ok(init::initialize_app(app)?))
-        // 当窗口关闭请求时，清理应用程序资源
+        // 处理不同窗口的关闭请求
         .on_window_event(|window, event| match event {
-            tauri::WindowEvent::CloseRequested { .. } => {
-                window.hide().unwrap();
-                init::cleanup_app_resources();
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                // 根据窗口标签执行不同的操作
+                if window.label() == "main" {
+                    // main窗口关闭时：隐藏窗口并清理资源
+                    window.hide().unwrap();
+                    init::cleanup_app_resources();
+                } else if window.label() == "file_manager" {
+                    // file_manager窗口关闭时：只隐藏窗口，不清理资源
+                    window.hide().unwrap();
+                    // 阻止窗口默认关闭行为
+                    api.prevent_close();
+                    log_info!("文件管理器窗口已隐藏（未真正关闭）");
+                }
             }
             _ => {}
         })

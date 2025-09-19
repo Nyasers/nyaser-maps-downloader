@@ -1,19 +1,37 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { minify } from 'html-minifier-terser';
-import { readdirSync, readFileSync, writeFileSync } from 'fs';
+import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
 
 // 获取当前文件和目录路径
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 获取HTML目录路径
+// 获取HTML和dist目录路径
 const htmlDir = path.join(__dirname, 'src-tauri', 'html');
+const distPath = path.join(__dirname, 'src-tauri', 'dist');
 
-// 获取HTML目录下所有非min的HTML文件
-const htmlFiles = readdirSync(htmlDir)
-  .filter(file => file.endsWith('.html') && !file.endsWith('.min.html'))
-  .map(file => path.join(htmlDir, file));
+// 递归获取HTML目录下所有非min的HTML文件
+function getAllHtmlFiles(dir) {
+  let results = [];
+  const list = readdirSync(dir);
+
+  list.forEach(file => {
+    const filePath = path.join(dir, file);
+    const stat = statSync(filePath);
+
+    if (stat.isDirectory()) {
+      // 递归处理子目录
+      results = results.concat(getAllHtmlFiles(filePath));
+    } else if (file.endsWith('.html')) {
+      results.push(filePath);
+    }
+  });
+
+  return results;
+}
+
+const htmlFiles = getAllHtmlFiles(htmlDir);
 
 // 配置压缩选项，经过精心调优以获得最佳压缩效果
 const options = {
@@ -27,7 +45,7 @@ const options = {
   useShortDoctype: true,
   removeEmptyElements: true,
   removeEmptyAttributes: true,
-  
+
   // CSS压缩优化 - 平衡压缩率和性能
   minifyCSS: {
     level: 2,
@@ -38,7 +56,7 @@ const options = {
     compatibility: 'ie11',
     roundingPrecision: -1
   },
-  
+
   // JavaScript压缩优化 - 经过实战验证的最佳配置
   minifyJS: {
     compress: {
@@ -77,7 +95,7 @@ const options = {
       quote_style: 1
     }
   },
-  
+
   // Tauri应用特有的优化
   removeAttributeQuotes: true,
   preserveLineBreaks: false,
@@ -85,7 +103,7 @@ const options = {
   sortClassName: true,
   html5: true,
   caseSensitive: false,
-  
+
   // 确保与Tauri API的兼容性
   ignoreCustomComments: [/TAURI_API/],
   ignoreCustomFragments: [/\<\?#.*?\?\>/],
@@ -94,9 +112,19 @@ const options = {
 
 // 生成压缩后的文件路径
 function generateOutputPath(inputPath) {
-  const dir = path.dirname(inputPath);
-  const baseName = path.basename(inputPath, '.html');
-  return path.join(dir, `${baseName}.min.html`);
+  // 计算相对于html目录的路径
+  const relativePath = path.relative(htmlDir, inputPath);
+
+  // 构建dist目录中的目标路径，保持相同的目录结构，去掉.min后缀
+  const filePath = path.join(distPath, relativePath);
+
+  // 确保目标目录存在
+  const fileDir = path.dirname(filePath);
+  if (!existsSync(fileDir)) {
+    mkdirSync(fileDir, { recursive: true });
+  }
+
+  return filePath;
 }
 
 // 格式化文件大小显示
@@ -137,19 +165,19 @@ function writeFileSafely(filePath, content, encoding = 'utf8') {
 async function minifyFiles() {
   try {
     console.log(`🚀 发现 ${htmlFiles.length} 个文件需要压缩...`);
-    
+
     // 总统计信息
     let totalOriginalSize = 0;
     let totalMinifiedSize = 0;
     let totalSavedSize = 0;
     const results = [];
-    
+
     // 压缩HTML文件
     for (const file of htmlFiles) {
       try {
         const originalContent = readFileSafely(file);
         const originalSize = getFileSize(originalContent);
-        
+
         // 先尝试基础压缩
         let minifiedContent;
         try {
@@ -162,20 +190,20 @@ async function minifyFiles() {
           fallbackOptions.minifyCSS = false;
           minifiedContent = await minify(originalContent, fallbackOptions);
         }
-        
+
         const minifiedSize = getFileSize(minifiedContent);
         const compressionRatio = ((1 - minifiedSize / originalSize) * 100).toFixed(2);
         const savedSize = originalSize - minifiedSize;
-        
+
         // 更新总统计
         totalOriginalSize += originalSize;
         totalMinifiedSize += minifiedSize;
         totalSavedSize += savedSize;
-        
+
         // 保存压缩文件
         const outputPath = generateOutputPath(file);
         writeFileSafely(outputPath, minifiedContent);
-        
+
         results.push({
           file,
           success: true,
@@ -185,23 +213,27 @@ async function minifyFiles() {
           compressionRatio,
           outputPath
         });
-        
-        // 打印单个文件的压缩结果
-        console.log(`✅ 已压缩: ${path.basename(file)}`);
+
+        // 打印单个文件的压缩结果，显示相对路径
+        const relativeFilePath = path.relative(htmlDir, file);
+        const relativeOutputPath = path.relative(path.join(__dirname, 'src-tauri', 'dist'), outputPath);
+        console.log(`✅ 已压缩: ${relativeFilePath}`);
         console.log(`   📦 原始大小: ${formatFileSize(originalSize)}`);
         console.log(`   📦 压缩大小: ${formatFileSize(minifiedSize)}`);
         console.log(`   💾 节省空间: ${formatFileSize(savedSize)} (${compressionRatio}%)`);
+        console.log(`   🎯 输出到: ${relativeOutputPath}`);
       } catch (error) {
-        console.error(`❌ 压缩文件失败: ${path.basename(file)}`, error.message);
+        const relativeFilePath = path.relative(htmlDir, file);
+        console.error(`❌ 压缩文件失败: ${relativeFilePath}`, error.message);
         results.push({ file, success: false, error: error.message });
       }
     }
-    
+
     // 打印总体统计信息
-    const overallCompressionRatio = totalOriginalSize > 0 
-      ? ((1 - totalMinifiedSize / totalOriginalSize) * 100).toFixed(2) 
+    const overallCompressionRatio = totalOriginalSize > 0
+      ? ((1 - totalMinifiedSize / totalOriginalSize) * 100).toFixed(2)
       : '0.00';
-    
+
     console.log('\n========== 压缩统计摘要 ==========');
     console.log(`📂 总文件数: ${htmlFiles.length}`);
     console.log(`⚡ 压缩文件数: ${results.filter(r => r.success).length}`);
@@ -210,7 +242,7 @@ async function minifyFiles() {
     console.log(`💰 总共节省: ${formatFileSize(totalSavedSize)}`);
     console.log(`🎯 总体压缩率: ${overallCompressionRatio}%`);
     console.log('=================================');
-    
+
     // 检查是否有失败的文件
     const failedFiles = results.filter(result => !result.success);
     if (failedFiles.length > 0) {
@@ -220,9 +252,9 @@ async function minifyFiles() {
       });
       process.exit(1);
     }
-    
+
     console.log('\n🎉 所有文件压缩完成！');
-    
+
   } catch (error) {
     console.error('压缩过程发生严重错误:', error);
     process.exit(1);

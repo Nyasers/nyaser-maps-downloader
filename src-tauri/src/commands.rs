@@ -2,7 +2,7 @@
 
 // 第三方库导入
 use serde_json;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::MessageDialogKind;
 use uuid::Uuid;
 
@@ -33,7 +33,7 @@ const DOWNLOAD_INTERCEPTOR_HTML: &[u8] = {
 
     #[cfg(not(debug_assertions))]
     {
-        include_bytes!("../html/middleware.min.html")
+        include_bytes!("../dist/middleware.html")
     }
 };
 
@@ -107,6 +107,206 @@ pub fn open_external_link(url: &str) -> Result<String, String> {
         log_error!("当前平台不支持打开外部链接");
         Err("当前平台不支持打开外部链接".to_string())
     }
+}
+
+/// 打开文件管理器窗口
+///
+/// # 参数
+/// - `app_handle`: Tauri应用句柄，用于获取窗口实例和发送事件
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command]
+pub fn open_file_manager_window(app_handle: AppHandle) -> Result<String, String> {
+    log_info!("接收到打开文件管理器窗口请求");
+
+    match app_handle.get_webview_window("file_manager") {
+        Some(window) => {
+            // 显示窗口
+            if let Err(e) = window.show() {
+                log_error!("显示文件管理器窗口失败: {:?}", e);
+                return Err(format!("显示窗口失败: {:?}", e));
+            }
+
+            // 将窗口置于前台
+            if let Err(e) = window.set_focus() {
+                log_error!("设置文件管理器窗口焦点失败: {:?}", e);
+                // 这个错误不影响窗口打开，所以不返回Err
+            }
+
+            // 发送自定义事件到file_manager窗口，触发文件列表刷新
+            if let Err(e) =
+                app_handle.emit_to("file_manager", "refresh-file-list", &serde_json::json!({}))
+            {
+                log_error!("发送刷新文件列表事件失败: {:?}", e);
+            }
+
+            log_info!("文件管理器窗口已成功打开并发送了刷新文件列表事件");
+            Ok("文件管理器窗口已打开".to_string())
+        }
+        None => {
+            log_error!("未找到文件管理器窗口");
+            Err("未找到文件管理器窗口配置".to_string())
+        }
+    }
+}
+
+/// 获取解压目录下以$nmd_开头的文件列表
+///
+/// # 返回值
+/// - 成功时返回包含文件信息的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command]
+pub fn get_nmd_files() -> Result<serde_json::Value, String> {
+    log_info!("接收到获取nmd文件列表请求");
+
+    // 获取解压目录
+    let extract_dir = match DIR_MANAGER.lock() {
+        Ok(mut manager) => {
+            if manager.is_none() {
+                *manager = Some(crate::dir_manager::DirManager::new().map_err(|e| {
+                    log_error!("目录管理器初始化失败: {}", e);
+                    e
+                })?);
+            }
+
+            // 获取目录路径并克隆它，避免生命周期问题
+            match manager.as_mut().unwrap().extract_dir() {
+                Some(dir) => dir.to_path_buf(),
+                None => {
+                    log_error!("无法获取解压目录");
+                    return Err("无法获取解压目录".to_string());
+                }
+            }
+        }
+        Err(e) => {
+            log_error!("无法锁定目录管理器: {:?}", e);
+            return Err(format!("无法锁定目录管理器: {:?}", e));
+        }
+    };
+
+    log_info!("解压目录: {}", extract_dir.display());
+
+    // 读取目录并过滤出以$nmd_开头的文件
+    let files = match std::fs::read_dir(extract_dir) {
+        Ok(dir_entries) => {
+            let mut file_list = Vec::new();
+
+            for entry in dir_entries {
+                match entry {
+                    Ok(entry) => {
+                        let path = entry.path();
+                        if let Some(file_name) = path.file_name() {
+                            let file_name_str = file_name.to_string_lossy();
+                            // 检查文件名是否以$nmd_开头且是文件（不是目录）
+                            if file_name_str.starts_with("$nmd_") && path.is_file() {
+                                // 获取文件大小
+                                let size = match std::fs::metadata(&path) {
+                                    Ok(meta) => meta.len(),
+                                    Err(e) => {
+                                        log_warn!(
+                                            "获取文件大小失败: {}, 错误: {:?}",
+                                            file_name_str,
+                                            e
+                                        );
+                                        0
+                                    }
+                                };
+
+                                // 添加到文件列表
+                                file_list.push(serde_json::json!({
+                                    "name": file_name_str,
+                                    "size": size
+                                }));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log_warn!("读取目录项失败: {:?}", e);
+                        continue;
+                    }
+                }
+            }
+
+            file_list
+        }
+        Err(e) => {
+            log_error!("读取解压目录失败: {:?}", e);
+            return Err(format!("读取目录失败: {:?}", e));
+        }
+    };
+
+    log_info!("找到{}个以$nmd_开头的文件", files.len());
+    Ok(serde_json::Value::Array(files))
+}
+
+/// 删除指定的nmd文件
+///
+/// # 参数
+/// - `file_name`: 要删除的文件名
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command]
+pub fn delete_nmd_file(file_name: String) -> Result<String, String> {
+    log_info!("接收到删除nmd文件请求: {}", file_name);
+
+    // 验证文件名格式
+    if !file_name.starts_with("$nmd_") {
+        log_error!("无效的文件名格式: {}", file_name);
+        return Err("只能删除以$nmd_开头的文件".to_string());
+    }
+
+    // 获取解压目录
+    let extract_dir = match DIR_MANAGER.lock() {
+        Ok(mut manager) => {
+            if manager.is_none() {
+                *manager = Some(crate::dir_manager::DirManager::new().map_err(|e| {
+                    log_error!("目录管理器初始化失败: {}", e);
+                    e
+                })?);
+            }
+
+            // 获取目录路径并克隆它，避免生命周期问题
+            match manager.as_mut().unwrap().extract_dir() {
+                Some(dir) => dir.to_path_buf(),
+                None => {
+                    log_error!("无法获取解压目录");
+                    return Err("无法获取解压目录".to_string());
+                }
+            }
+        }
+        Err(e) => {
+            log_error!("无法锁定目录管理器: {:?}", e);
+            return Err(format!("无法锁定目录管理器: {:?}", e));
+        }
+    };
+
+    // 构建完整的文件路径
+    let file_path = extract_dir.join(&file_name);
+
+    // 检查文件是否存在
+    if !file_path.exists() {
+        log_error!("文件不存在: {}", file_path.display());
+        return Err(format!("文件不存在: {}", file_name));
+    }
+
+    // 检查是否为文件
+    if !file_path.is_file() {
+        log_error!("指定的路径不是文件: {}", file_path.display());
+        return Err(format!("指定的路径不是文件: {}", file_name));
+    }
+
+    // 删除文件
+    if let Err(e) = std::fs::remove_file(&file_path) {
+        log_error!("删除文件失败: {}, 错误: {:?}", file_path.display(), e);
+        return Err(format!("删除文件失败: {:?}", e));
+    }
+
+    log_info!("文件已成功删除: {}", file_path.display());
+    Ok(format!("文件 {} 已成功删除", file_name))
 }
 
 /// 下载函数 - 将地图下载任务添加到下载队列

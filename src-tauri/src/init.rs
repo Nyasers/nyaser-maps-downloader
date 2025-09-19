@@ -12,9 +12,13 @@ use serde_json;
 use tauri::{App, AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::MessageDialogKind;
 
-// 定义全局标志，表示应用是否正在关闭
+// 定义全局变量
 lazy_static! {
+    // 表示应用是否正在关闭
     static ref APP_SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+    // 全局应用句柄，用于在清理资源时关闭窗口
+    static ref GLOBAL_APP_HANDLE: std::sync::Arc<std::sync::RwLock<Option<tauri::AppHandle>>> =
+        std::sync::Arc::new(std::sync::RwLock::new(None));
 }
 
 // 获取应用关闭状态
@@ -62,6 +66,7 @@ pub fn update_window_title(app_handle: &AppHandle, title: &str) {
 /// 4. 更新窗口标题
 /// 5. 设置全局解压目录
 /// 6. 显示主窗口
+/// 7. 保存全局应用句柄，用于后续资源清理时关闭窗口
 ///
 /// 如果无法获取L4D2的addons目录，将显示错误对话框并退出应用。
 ///
@@ -74,6 +79,9 @@ pub fn update_window_title(app_handle: &AppHandle, title: &str) {
 pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
     // 获取应用句柄的克隆，以便在异步任务中使用
     let app_handle = app.handle().clone();
+
+    // 保存全局应用句柄，用于资源清理时关闭窗口
+    *GLOBAL_APP_HANDLE.write().unwrap() = Some(app_handle.clone());
 
     // 初始化全局临时目录管理器
     if let Err(e) = get_global_temp_dir() {
@@ -136,10 +144,18 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// 清理应用程序资源 - 在窗口关闭时调用，负责清理临时目录等资源
+/// 清理应用程序资源 - 在窗口关闭时调用，负责清理临时目录等资源并关闭窗口
 ///
-/// 此函数在应用程序关闭时调用，确保临时目录被正确清理，避免磁盘空间浪费。
+/// 此函数在应用程序关闭时调用，确保：
+/// 1. 临时目录被正确清理，避免磁盘空间浪费
+/// 2. 所有窗口被正确关闭
 pub fn cleanup_app_resources() {
+    // 检查是否已经在关闭过程中，如果是则直接返回，避免循环调用
+    if is_app_shutting_down() {
+        log_info!("应用已经在关闭过程中，跳过重复的资源清理...");
+        return;
+    }
+
     // 设置应用关闭标志，通知其他线程
     log_info!("应用开始关闭，设置关闭标志...");
     set_app_shutting_down(true);
@@ -148,6 +164,23 @@ pub fn cleanup_app_resources() {
     cleanup_aria2c_resources();
     // 清理临时目录
     cleanup_temp_dir();
+
+    // 尝试获取全局应用句柄
+    if let Some(app_handle) = &*GLOBAL_APP_HANDLE.read().unwrap() {
+        log_info!("正在关闭所有窗口...");
+
+        // 关闭文件管理器窗口
+        if let Some(file_manager_window) = app_handle.get_webview_window("file_manager") {
+            log_info!("关闭文件管理器窗口...");
+            let _ = file_manager_window.close();
+        }
+
+        // 关闭主窗口
+        if let Some(main_window) = app_handle.get_webview_window("main") {
+            log_info!("关闭主窗口...");
+            let _ = main_window.close();
+        }
+    }
 
     log_info!("资源清理完成，进程即将退出...");
 }
