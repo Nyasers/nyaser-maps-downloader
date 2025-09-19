@@ -823,7 +823,7 @@
           // 检查是否为特定域名下的下载链接
           if (url.startsWith('https://maps.nyase.ru/d/') ||
             url.startsWith('https://maps.nyase.ru/p/') ||
-            url.endsWith('.7z')) {
+            url.includes('.7z?sign=')) {
             return true;
           }
 

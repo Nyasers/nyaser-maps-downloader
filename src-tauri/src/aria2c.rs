@@ -956,31 +956,81 @@ pub fn initialize_aria2c_backend() -> Result<(), String> {
 }
 
 /// 清理aria2c资源
-/// 这个函数应该在应用关闭时调用，确保aria2c RPC服务器正确关闭
+/// 这个函数应该在应用关闭时调用，确保aria2c RPC服务器正确关闭并释放所有资源
 pub fn cleanup_aria2c_resources() {
     log_info!("应用关闭时清理aria2c资源...");
 
-    // 关闭RPC管理器 - 使用try_lock避免在应用关闭时阻塞
-    if let Ok(mut manager_guard) = ARIA2_RPC_MANAGER.try_lock() {
+    // 关闭RPC管理器 - 对于关键资源清理，使用lock确保执行
+    log_info!("尝试获取RPC管理器锁以关闭服务...");
+    if let Ok(mut manager_guard) = ARIA2_RPC_MANAGER.lock() {
         if let Some(mut rpc_manager) = manager_guard.take() {
+            log_info!("关闭Aria2 RPC服务器...");
             rpc_manager.shutdown();
         }
     } else {
-        log_warn!("无法获取RPC管理器锁，跳过关闭RPC管理器");
+        log_error!("获取RPC管理器锁失败，这是不应该发生的情况！");
     }
 
-    // 清理所有运行中的aria2c进程 - 使用try_lock避免在应用关闭时阻塞
-    if let Ok(mut pids_guard) = RUNNING_ARIA2_PIDS.try_lock() {
+    // 等待一小段时间，给RPC服务器一些时间关闭
+    log_info!("等待RPC服务器关闭...");
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // 清理所有运行中的aria2c进程 - 使用lock确保执行
+    log_info!("尝试获取进程ID列表锁以终止剩余进程...");
+    if let Ok(mut pids_guard) = RUNNING_ARIA2_PIDS.lock() {
         for pid in pids_guard.drain() {
-            log_info!("尝试终止aria2c进程: {}", pid);
-            // 在Windows上，使用taskkill命令强制终止进程，隐藏窗口，并且不等待命令完成
-            let _ = Command::new("taskkill")
+            log_info!("强制终止aria2c进程: {}", pid);
+            // 在Windows上，使用taskkill命令强制终止进程，隐藏窗口
+            let result = Command::new("taskkill")
                 .args(["/F", "/PID", &pid.to_string()])
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW 标志，隐藏命令行窗口
-                .spawn(); // 使用spawn而不是output，避免阻塞清理过程
+                .output(); // 使用output等待命令完成
+
+            match result {
+                Ok(output) => {
+                    if output.status.success() {
+                        log_info!("成功终止进程: {}", pid);
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        log_warn!("终止进程{}失败: {}", pid, stderr);
+                    }
+                }
+                Err(e) => log_error!("执行taskkill命令失败: {}", e),
+            }
         }
     } else {
-        log_warn!("无法获取进程ID列表锁，跳过强制终止aria2c进程");
+        log_error!("获取进程ID列表锁失败，这是不应该发生的情况！");
+    }
+
+    // 额外等待时间，确保文件资源完全释放
+    log_info!("等待文件资源完全释放...");
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // 清理可能残留的aria2临时文件
+    if let Ok(temp_dir) = crate::dir_manager::get_global_temp_dir() {
+        let downloads_dir = temp_dir.join("downloads");
+        if downloads_dir.exists() {
+            log_info!(
+                "检查并清理下载目录中的aria2临时文件: {}",
+                downloads_dir.to_string_lossy()
+            );
+            match std::fs::read_dir(downloads_dir) {
+                Ok(entries) => {
+                    for entry in entries {
+                        if let Ok(entry) = entry {
+                            let path = entry.path();
+                            if let Some(ext) = path.extension() {
+                                if ext == "aria2" {
+                                    log_info!("删除aria2临时文件: {}", path.to_string_lossy());
+                                    let _ = std::fs::remove_file(&path);
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => log_warn!("读取下载目录失败: {}", e),
+            }
+        }
     }
 
     log_info!("aria2c资源清理完成");

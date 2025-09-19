@@ -140,7 +140,7 @@ pub fn open_file_manager_window(app_handle: AppHandle) -> Result<String, String>
                 log_error!("重置文件管理器窗口最大化状态失败: {:?}", e);
                 // 这个错误不影响窗口打开，所以不返回Err
             }
-            
+
             // 从最小化状态恢复
             if let Err(e) = window.unminimize() {
                 log_error!("恢复文件管理器窗口最小化状态失败: {:?}", e);
@@ -152,14 +152,16 @@ pub fn open_file_manager_window(app_handle: AppHandle) -> Result<String, String>
                 if let (Ok(main_pos), Ok(main_size), Ok(child_size)) = (
                     main_window.inner_position(),
                     main_window.inner_size(),
-                    window.inner_size()
+                    window.inner_size(),
                 ) {
                     // 计算居中位置
                     let x = main_pos.x + ((main_size.width as i32 - child_size.width as i32) / 2);
                     let y = main_pos.y + ((main_size.height as i32 - child_size.height as i32) / 2);
-                    
+
                     // 设置居中位置
-                    if let Err(e) = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y })) {
+                    if let Err(e) = window
+                        .set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+                    {
                         log_error!("设置文件管理器窗口居中位置失败: {:?}", e);
                     }
                 }
@@ -302,7 +304,7 @@ pub fn open_server_list_window(app_handle: AppHandle) -> Result<String, String> 
                 log_error!("重置服务器列表窗口最大化状态失败: {:?}", e);
                 // 这个错误不影响窗口打开，所以不返回Err
             }
-            
+
             // 从最小化状态恢复
             if let Err(e) = window.unminimize() {
                 log_error!("恢复服务器列表窗口最小化状态失败: {:?}", e);
@@ -314,14 +316,16 @@ pub fn open_server_list_window(app_handle: AppHandle) -> Result<String, String> 
                 if let (Ok(main_pos), Ok(main_size), Ok(child_size)) = (
                     main_window.inner_position(),
                     main_window.inner_size(),
-                    window.inner_size()
+                    window.inner_size(),
                 ) {
                     // 计算居中位置
                     let x = main_pos.x + ((main_size.width as i32 - child_size.width as i32) / 2);
                     let y = main_pos.y + ((main_size.height as i32 - child_size.height as i32) / 2);
-                    
+
                     // 设置居中位置
-                    if let Err(e) = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y })) {
+                    if let Err(e) = window
+                        .set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+                    {
                         log_error!("设置服务器列表窗口居中位置失败: {:?}", e);
                     }
                 }
@@ -476,7 +480,14 @@ pub async fn download(url: &str, app_handle: AppHandle) -> Result<String, String
     log_info!("生成任务ID: {}", task_id);
 
     // 尝试从URL中提取文件名
-    let filename = url.split('/').last().map(|s| s.to_string());
+    let filename = url
+        .split('/')
+        .last()
+        .map(|s| s.to_string())
+        .unwrap()
+        .split('?')
+        .next()
+        .map(|s| s.to_string());
     log_debug!("从URL提取文件名: {:?}", filename);
 
     // 创建下载任务
