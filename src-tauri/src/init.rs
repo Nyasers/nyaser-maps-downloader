@@ -9,7 +9,7 @@ use std::{
 // 第三方库导入
 use lazy_static::lazy_static;
 use serde_json;
-use tauri::{App, AppHandle, Emitter, Manager};
+use tauri::{App, AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
 use tauri_plugin_dialog::MessageDialogKind;
 
 // 定义全局变量
@@ -41,6 +41,38 @@ use crate::{
     extract_manager::initialize_7z_resources,
     log_info,
 };
+
+/// 将窗口在屏幕上居中
+///
+/// 此函数获取窗口大小和屏幕大小，计算居中位置，并设置窗口位置。
+///
+/// # 参数
+/// - `window`: 要居中的窗口实例
+///
+/// # 返回值
+/// - 成功时返回Ok(())
+/// - 失败时返回包含错误信息的Err
+fn center_window_on_screen(window: &WebviewWindow) -> Result<(), Box<dyn std::error::Error>> {
+    // 获取窗口大小
+    let window_size = window.inner_size()?;
+    
+    // 获取窗口当前所在的屏幕
+    let screen = window.current_monitor()?.ok_or("无法获取当前屏幕")?;
+    
+    // 获取屏幕工作区大小（不包括任务栏等区域）
+    let work_area = screen.work_area();
+    
+    // 计算居中位置
+    let position = PhysicalPosition {
+        x: (work_area.size.width as i32 - window_size.width as i32) / 2,
+        y: (work_area.size.height as i32 - window_size.height as i32) / 2,
+    };
+    
+    // 设置窗口位置
+    window.set_position(position)?;
+    
+    Ok(())
+}
 
 /// 更新窗口标题 - 在应用标题后追加自定义内容
 ///
@@ -127,6 +159,11 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
 
             // 初始化检查完成，没有错误，显示主窗口
             if let Some(window) = app.get_webview_window("main") {
+                // 使窗口在屏幕上居中
+                if let Err(e) = center_window_on_screen(&window) {
+                    eprintln!("无法将窗口居中: {:?}", e);
+                }
+                
                 if let Err(e) = window.show() {
                     eprintln!("无法显示窗口: {:?}", e);
                 }

@@ -12,17 +12,26 @@
       {
         "label": "main",
         "title": "Nyaser Maps Downloader",
-        "width": 800,
-        "height": 600,
+        "width": 1024,
+        "height": 768,
         "url": "https://maps.nyase.ru",
         "visible": false
       },
       {
         "label": "file_manager",
         "title": "Nyaser Maps Downloader - 文件管理器",
-        "width": 700,
-        "height": 500,
+        "width": 800,
+        "height": 600,
         "url": "file_manager.html",
+        "visible": false,
+        "parent": "main"
+      },
+      {
+        "label": "server_list",
+        "title": "Left 4 Dead 2 🍋",
+        "width": 800,
+        "height": 600,
+        "url": "https://l4d2server.com",
         "visible": false,
         "parent": "main"
       }

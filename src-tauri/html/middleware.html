@@ -299,6 +299,26 @@
                   location.href = 'steam://rungameid/550';
                 });
 
+                // 创建服务器列表按钮
+                const serverListButton = settings.parentNode.appendChild(settings.cloneNode());
+                serverListButton.id = "server-list-button";
+                serverListButton.innerHTML = `<path d="M864 138.666667v768h-704v-768h704z m-64 533.333333h-576v170.666667h576v-170.666667zM704 725.333333v64h-128v-64h128z m96-288h-576v170.666667h576v-170.666667zM704 490.666667v64h-128v-64h128z m96-288h-576v170.666666h576v-170.666666zM704 256v64h-128v-64h128z" fill="#1890ff" p-id="4714"></path>`;
+
+                // 添加点击事件处理
+                serverListButton.addEventListener("click", async (event) => {
+                  event.stopPropagation(); // 阻止事件冒泡
+                  try {
+                    if (window.__TAURI__?.core?.invoke) {
+                      console.log('Nyaser Maps Downloader: 调用后端open_server_list_window命令');
+                      await window.__TAURI__.core.invoke('open_server_list_window');
+                    } else {
+                      console.error('Nyaser Maps Downloader: Tauri invoke API不可用');
+                    }
+                  } catch (e) {
+                    console.error('Nyaser Maps Downloader: 打开服务器列表窗口时出错:', e);
+                  }
+                });
+
                 // 创建文件管理器按钮
                 const fileManagerButton = settings.parentNode.appendChild(settings.cloneNode());
                 fileManagerButton.id = "file-manager-button";
@@ -321,7 +341,7 @@
               }
             }
           } catch (e) {
-            console.error('Nyaser Maps Downloader: 添加Steam按钮时出错:', e);
+            console.error('Nyaser Maps Downloader: 添加按钮时出错:', e);
           }
         };
 
@@ -802,7 +822,8 @@
 
           // 检查是否为特定域名下的下载链接
           if (url.startsWith('https://maps.nyase.ru/d/') ||
-            url.startsWith('https://maps.nyase.ru/p/')) {
+            url.startsWith('https://maps.nyase.ru/p/') ||
+            url.endsWith('.7z')) {
             return true;
           }
 

@@ -35,6 +35,7 @@ pub fn run() {
             commands::get_middleware,
             commands::open_external_link,
             commands::open_file_manager_window,
+            commands::open_server_list_window,
             commands::get_nmd_files,
             commands::delete_nmd_file
         ])
@@ -48,12 +49,12 @@ pub fn run() {
                     // main窗口关闭时：隐藏窗口并清理资源
                     window.hide().unwrap();
                     init::cleanup_app_resources();
-                } else if window.label() == "file_manager" {
-                    // file_manager窗口关闭时：只隐藏窗口，不清理资源
+                } else {
+                    // 其他子窗口关闭时：只隐藏窗口，不清理资源
                     window.hide().unwrap();
                     // 阻止窗口默认关闭行为
                     api.prevent_close();
-                    log_info!("文件管理器窗口已隐藏（未真正关闭）");
+                    log_info!("子窗口 {} 已隐藏", window.label());
                 }
             }
             _ => {}

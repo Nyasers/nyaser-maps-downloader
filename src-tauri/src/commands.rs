@@ -135,6 +135,36 @@ pub fn open_file_manager_window(app_handle: AppHandle) -> Result<String, String>
                 // 这个错误不影响窗口打开，所以不返回Err
             }
 
+            // 重置窗口状态到Normal（非最大/最小化）
+            if let Err(e) = window.unmaximize() {
+                log_error!("重置文件管理器窗口最大化状态失败: {:?}", e);
+                // 这个错误不影响窗口打开，所以不返回Err
+            }
+            
+            // 从最小化状态恢复
+            if let Err(e) = window.unminimize() {
+                log_error!("恢复文件管理器窗口最小化状态失败: {:?}", e);
+                // 这个错误不影响窗口打开，所以不返回Err
+            }
+
+            // 相对于主窗口居中对齐
+            if let Some(main_window) = app_handle.get_webview_window("main") {
+                if let (Ok(main_pos), Ok(main_size), Ok(child_size)) = (
+                    main_window.inner_position(),
+                    main_window.inner_size(),
+                    window.inner_size()
+                ) {
+                    // 计算居中位置
+                    let x = main_pos.x + ((main_size.width as i32 - child_size.width as i32) / 2);
+                    let y = main_pos.y + ((main_size.height as i32 - child_size.height as i32) / 2);
+                    
+                    // 设置居中位置
+                    if let Err(e) = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y })) {
+                        log_error!("设置文件管理器窗口居中位置失败: {:?}", e);
+                    }
+                }
+            }
+
             // 发送自定义事件到file_manager窗口，触发文件列表刷新
             if let Err(e) =
                 app_handle.emit_to("file_manager", "refresh-file-list", &serde_json::json!({}))
@@ -239,6 +269,72 @@ pub fn get_nmd_files() -> Result<serde_json::Value, String> {
 
     log_info!("找到{}个以$nmd_开头的文件", files.len());
     Ok(serde_json::Value::Array(files))
+}
+
+/// 打开服务器列表窗口
+///
+/// # 参数
+/// - `app_handle`: Tauri应用句柄，用于获取窗口实例
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command]
+pub fn open_server_list_window(app_handle: AppHandle) -> Result<String, String> {
+    log_info!("接收到打开服务器列表窗口请求");
+
+    match app_handle.get_webview_window("server_list") {
+        Some(window) => {
+            // 显示窗口
+            if let Err(e) = window.show() {
+                log_error!("显示服务器列表窗口失败: {:?}", e);
+                return Err(format!("显示窗口失败: {:?}", e));
+            }
+
+            // 将窗口置于前台
+            if let Err(e) = window.set_focus() {
+                log_error!("设置服务器列表窗口焦点失败: {:?}", e);
+                // 这个错误不影响窗口打开，所以不返回Err
+            }
+
+            // 重置窗口状态到Normal（非最大/最小化）
+            if let Err(e) = window.unmaximize() {
+                log_error!("重置服务器列表窗口最大化状态失败: {:?}", e);
+                // 这个错误不影响窗口打开，所以不返回Err
+            }
+            
+            // 从最小化状态恢复
+            if let Err(e) = window.unminimize() {
+                log_error!("恢复服务器列表窗口最小化状态失败: {:?}", e);
+                // 这个错误不影响窗口打开，所以不返回Err
+            }
+
+            // 相对于主窗口居中对齐
+            if let Some(main_window) = app_handle.get_webview_window("main") {
+                if let (Ok(main_pos), Ok(main_size), Ok(child_size)) = (
+                    main_window.inner_position(),
+                    main_window.inner_size(),
+                    window.inner_size()
+                ) {
+                    // 计算居中位置
+                    let x = main_pos.x + ((main_size.width as i32 - child_size.width as i32) / 2);
+                    let y = main_pos.y + ((main_size.height as i32 - child_size.height as i32) / 2);
+                    
+                    // 设置居中位置
+                    if let Err(e) = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y })) {
+                        log_error!("设置服务器列表窗口居中位置失败: {:?}", e);
+                    }
+                }
+            }
+
+            log_info!("服务器列表窗口已成功打开");
+            Ok("服务器列表窗口已打开".to_string())
+        }
+        None => {
+            log_error!("未找到服务器列表窗口");
+            Err("未找到服务器列表窗口配置".to_string())
+        }
+    }
 }
 
 /// 删除指定的nmd文件
