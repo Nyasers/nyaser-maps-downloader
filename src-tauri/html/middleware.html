@@ -124,6 +124,99 @@
     font-size: 14px;
     display: none;
   }
+
+  /* 排队任务容器 */
+  .nmd-queue-container {
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    border-radius: 5px;
+    padding: 10px 15px;
+    min-width: 300px;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  }
+
+  /* 排队任务标题 */
+  .nmd-queue-title {
+    font-weight: bold;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: #ccc;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  /* 排队任务列表 */
+  .nmd-queue-list {
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  /* 单个排队任务 */
+  .nmd-queue-task {
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    transition: background-color 0.2s;
+  }
+
+  .nmd-queue-task:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .nmd-queue-task:last-child {
+    border-bottom: none;
+  }
+
+  /* 排队任务文件名 */
+  .nmd-queue-task-filename {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    margin-right: 8px;
+  }
+
+  /* 排队任务位置 */
+  .nmd-queue-task-position {
+    background: rgba(255, 152, 0, 0.7);
+    border-radius: 10px;
+    padding: 2px 8px;
+    font-size: 11px;
+    margin-right: 10px;
+  }
+
+  /* 排队任务取消按钮 */
+  .nmd-queue-task-cancel {
+    background: #f44336;
+    color: white;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background-color 0.3s;
+  }
+
+  .nmd-queue-task-cancel:hover {
+    background: #d32f2f;
+  }
+
+  .nmd-queue-task-cancel:active {
+    background: #b71c1c;
+  }
+
+  /* 队列为空时显示 */
+  .nmd-queue-empty {
+    text-align: center;
+    color: #888;
+    font-size: 12px;
+    padding: 10px 0;
+  }
 </style>
 <script>
   !function () {
@@ -140,6 +233,28 @@
 
       // 存储当前活动的下载任务
       const activeTasks = new Map();
+
+      // 创建排队任务容器
+      const queueContainer = document.createElement('div');
+      queueContainer.className = 'nmd-queue-container';
+      queueContainer.style.display = 'none'; // 默认隐藏
+      downloadsContainer.appendChild(queueContainer);
+
+      // 创建排队任务标题
+      const queueTitle = document.createElement('div');
+      queueTitle.className = 'nmd-queue-title';
+      queueContainer.appendChild(queueTitle);
+
+      // 创建排队任务列表
+      const queueList = document.createElement('div');
+      queueList.className = 'nmd-queue-list';
+      queueContainer.appendChild(queueList);
+
+      // 创建队列为空时的提示
+      const queueEmpty = document.createElement('div');
+      queueEmpty.className = 'nmd-queue-empty';
+      queueEmpty.textContent = '队列为空';
+      queueList.appendChild(queueEmpty);
 
       // 创建下载任务元素的函数
       function createTaskElement(taskId, filename, initialStatus = '准备下载...') {
@@ -735,6 +850,9 @@
           // 在控制台输出队列更新信息
           console.log('Nyaser Maps Downloader: 队列更新 - 等待任务数:', waiting_tasks,
             '总任务数:', total_tasks, '活跃任务数:', active_tasks);
+
+          // 更新排队任务UI
+          updateQueueDisplay(waiting_tasks, total_tasks, active_tasks);
         });
 
         // 监听目录更改事件
@@ -747,6 +865,91 @@
             console.log('Nyaser Maps Downloader: 解压路径:', newDir);
           }
         });
+
+        // 更新排队任务显示的函数
+        function updateQueueDisplay(waitingTasks, totalTasks, activeTasksCount) {
+          // 清空队列列表
+          queueList.innerHTML = '';
+
+          // 更新标题
+          queueTitle.textContent = `排队任务 (${waitingTasks.length})`;
+
+          // 如果有等待任务，显示队列容器
+          if (waitingTasks && waitingTasks.length > 0) {
+            queueContainer.style.display = 'block';
+
+            // 检查是否有活跃任务
+            const hasActiveTasks = activeTasksCount > 0 || activeTasks.size > 0;
+
+            // 添加每个排队任务
+            waitingTasks.forEach((task, index) => {
+              const queueTaskElement = document.createElement('div');
+              queueTaskElement.className = 'nmd-queue-task';
+
+              // 创建文件名元素
+              const filenameElement = document.createElement('div');
+              filenameElement.className = 'nmd-queue-task-filename';
+              // 解码文件名
+              const decodedFilename = task.filename ? decodeURIComponent(task.filename) : '未知文件';
+              filenameElement.textContent = decodedFilename;
+
+              // 创建位置元素
+              const positionElement = document.createElement('div');
+              positionElement.className = 'nmd-queue-task-position';
+              // 如果有活跃任务，位置为 index + 1；否则位置为 index（因为即将开始下载）
+              const position = hasActiveTasks ? index + 1 : 0;
+              positionElement.textContent = position > 0 ? `#${position}` : '即将开始';
+
+              // 组装元素
+              queueTaskElement.appendChild(filenameElement);
+              queueTaskElement.appendChild(positionElement);
+              queueList.appendChild(queueTaskElement);
+
+              // 创建取消按钮
+              const cancelButton = document.createElement('button');
+              cancelButton.className = 'nmd-queue-task-cancel';
+              cancelButton.textContent = '取消';
+              cancelButton.title = '取消此排队任务';
+
+              // 添加取消按钮到任务元素
+              queueTaskElement.appendChild(cancelButton);
+
+              // 添加按钮点击事件，允许取消排队任务
+              cancelButton.addEventListener('click', async (e) => {
+                e.stopPropagation(); // 阻止事件冒泡
+
+                if (task.id) {
+                  try {
+                    // 调用后端取消下载命令
+                    await window.__TAURI__.core.invoke('cancel_download', {
+                      taskId: task.id
+                    });
+                    console.log('Nyaser Maps Downloader: 取消排队任务:', task.id);
+                  } catch (error) {
+                    console.error('Nyaser Maps Downloader: 取消排队任务失败:', error);
+                    warningDisplay.textContent = '错误: 取消排队任务失败 - ' + error.message;
+                    warningDisplay.style.display = 'block';
+                    warningDisplay.style.background = 'rgba(244, 67, 54, 0.9)';
+
+                    setTimeout(() => {
+                      warningDisplay.style.display = 'none';
+                      warningDisplay.style.background = 'rgba(255, 152, 0, 0.9)';
+                    }, 5000);
+                  }
+                }
+              });
+            });
+          } else {
+            // 如果没有等待任务，隐藏队列容器
+            queueContainer.style.display = 'none';
+
+            // 添加队列为空的提示
+            const emptyElement = document.createElement('div');
+            emptyElement.className = 'nmd-queue-empty';
+            emptyElement.textContent = '队列为空';
+            queueList.appendChild(emptyElement);
+          }
+        }
 
         // 监听游戏目录警告事件
         const gameDirWarningUnlisten = listen('game-dir-warning', (event) => {

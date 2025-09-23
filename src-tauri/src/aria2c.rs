@@ -1144,7 +1144,7 @@ pub async fn cancel_download(gid: &str) -> Result<String, String> {
     };
 
     // 发送RPC请求
-    let response = send_rpc_request_async(manager, &request)
+    let _response = send_rpc_request_async(manager, &request)
         .await
         .map_err(|e| {
             log_error!("发送取消下载请求失败: {}", e);
@@ -1376,6 +1376,34 @@ pub async fn download_via_aria2(
                             &serde_json::json!({
                                 "taskId": task_id_clone.clone(),
                                 "filename": display_filename.clone()
+                            }),
+                        );
+
+                        // 发送队列更新事件，确保前端正确更新队列显示
+                        let (total_tasks, queue_size, active_tasks_count, waiting_tasks) = {
+                            let queue = (&*crate::download_manager::DOWNLOAD_QUEUE).lock().unwrap();
+                            let size = queue.queue.len();
+                            let active = queue.active_tasks.len();
+                            let total = size + active;
+
+                            // 构建等待任务列表（转换为可序列化的格式）
+                            let tasks = queue.queue
+                                    .iter()
+                                    .map(|task| {
+                                        serde_json::json!({"id": task.id, "url": task.url, "filename": task.filename})
+                                    })
+                                    .collect::<Vec<_>>();
+
+                            (total, size, active, tasks)
+                        };
+
+                        let _ = app_handle_for_events.emit_to(
+                            "main",
+                            "download-queue-update",
+                            &serde_json::json!({
+                                "queue": {"waiting_tasks": waiting_tasks,
+                                           "total_tasks": total_tasks,
+                                           "active_tasks": active_tasks_count}
                             }),
                         );
 

@@ -77,6 +77,34 @@ pub fn start_download_queue_manager(app_handle: AppHandle) {
             ),
         );
 
+        // 发送队列更新事件，确保前端正确更新队列显示
+        let (total_tasks, _queue_size, active_tasks_count, waiting_tasks) = {
+            let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
+            let size = queue.queue.len();
+            let active = queue.active_tasks.len();
+            let total = size + active;
+
+            // 构建等待任务列表（转换为可序列化的格式）
+            let tasks = queue.queue
+                    .iter()
+                    .map(|task| {
+                        serde_json::json!({"id": task.id, "url": task.url, "filename": task.filename})
+                    })
+                    .collect::<Vec<_>>();
+
+            (total, size, active, tasks)
+        };
+
+        let _ = app_clone.emit_to(
+            "main",
+            "download-queue-update",
+            &serde_json::json!({
+                "queue": {"waiting_tasks": waiting_tasks,
+                           "total_tasks": total_tasks,
+                           "active_tasks": active_tasks_count}
+            }),
+        );
+
         // 在异步任务中处理下载和解压
         tauri::async_runtime::spawn(async move {
             let result = download_and_extract(
