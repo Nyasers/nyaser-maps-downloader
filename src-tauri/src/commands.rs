@@ -603,3 +603,92 @@ pub async fn install(url: &str, app_handle: AppHandle) -> Result<String, String>
         total_tasks
     ))
 }
+
+/// 取消下载任务 - 从下载队列中移除指定的下载任务
+///
+/// 此函数会取消指定ID的下载任务，
+/// 如果任务正在下载，则通过aria2c取消下载，
+/// 如果任务在等待队列中，则直接从队列中移除。
+///
+/// # 参数
+/// - `task_id`: 要取消的下载任务的唯一标识符
+/// - `app_handle`: Tauri应用句柄，用于发送事件通知
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command(async)]
+pub async fn cancel_download(task_id: &str, app_handle: AppHandle) -> Result<String, String> {
+    log_info!("接收到取消下载任务请求: 任务ID={}", task_id);
+
+    // 检查并处理等待队列中的任务
+    let mut removed_from_queue = false;
+    {
+        let mut queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
+
+        // 查找并移除队列中的任务
+        let original_len = queue.queue.len();
+        queue.queue.retain(|task| task.id != task_id);
+
+        if original_len != queue.queue.len() {
+            removed_from_queue = true;
+            log_info!("任务 {} 已从等待队列中移除", task_id);
+        }
+
+        // 检查任务是否在活跃任务中
+        if queue.active_tasks.contains(task_id) {
+            log_info!("任务 {} 正在下载中，需要通过aria2c取消", task_id);
+
+            // 从活跃任务中移除，避免重复处理
+            queue.active_tasks.remove(task_id);
+
+            // 将任务ID添加到取消下载请求列表
+            if let Ok(mut cancel_requests) = crate::aria2c::CANCEL_DOWNLOAD_REQUESTS.lock() {
+                cancel_requests.insert(task_id.to_string());
+                log_info!("已将任务ID {} 添加到取消下载请求列表", task_id);
+            } else {
+                log_error!("无法锁定取消下载请求列表");
+            }
+
+            // 发送取消下载事件给前端，包含任务ID
+            let _ = app_handle.emit_to(
+                "main",
+                "download-cancel-requested",
+                &serde_json::json!({ "taskId": task_id }),
+            );
+        }
+    }
+
+    // 发送队列更新事件通知
+    if removed_from_queue {
+        let (total_tasks, queue_size, waiting_tasks) = {
+            let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
+            let size = queue.queue.len();
+            let active = queue.active_tasks.len();
+            let total = size + active;
+
+            // 构建等待任务列表（转换为可序列化的格式）
+            let tasks = queue.queue
+                .iter()
+                .map(|task| {
+                    serde_json::json!({"id": task.id, "url": task.url, "filename": task.filename})
+                })
+                .collect::<Vec<_>>();
+
+            (total, size, tasks)
+        };
+
+        let _ = app_handle.emit_to(
+            "main",
+            "download-queue-update",
+            &serde_json::json!({
+                "queue": {"waiting_tasks": waiting_tasks,
+                           "total_tasks": total_tasks,
+                           "active_tasks": queue_size}
+            }),
+        );
+    }
+
+    log_info!("取消下载任务处理完成: 任务ID={}", task_id);
+    Ok(format!("已成功请求取消下载任务: {}", task_id))
+}

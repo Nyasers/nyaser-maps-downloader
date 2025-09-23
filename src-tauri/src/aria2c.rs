@@ -58,6 +58,9 @@ lazy_static! {
     static ref ARIA2_RPC_MANAGER: Mutex<Option<Aria2RpcManager>> = Mutex::new(None);
     // 保存上次成功启动的aria2c信息（端口、密钥、PID）
     static ref LAST_ARIA2_INFO: Mutex<Option<(u16, String, u32)>> = Mutex::new(None);
+
+    // 用于存储取消下载请求的任务ID
+    pub static ref CANCEL_DOWNLOAD_REQUESTS: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
 }
 
 // 下载状态结构体
@@ -1099,6 +1102,59 @@ pub fn get_aria2c_path() -> PathBuf {
     path
 }
 
+/// 取消下载任务 - 通过aria2c RPC接口取消指定的下载任务
+///
+/// 此函数使用aria2c的RPC接口发送取消下载请求，
+/// 从aria2c下载队列中移除指定GID的下载任务。
+///
+/// # 参数
+/// - `gid`: 要取消的下载任务的GID
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+pub async fn cancel_download(gid: &str) -> Result<String, String> {
+    log_info!("尝试取消下载任务: GID={}", gid);
+
+    // 获取RPC管理器实例
+    let manager_mutex = get_rpc_manager().map_err(|e| {
+        log_error!("获取RPC管理器失败: {}", e);
+        e
+    })?;
+
+    let manager = manager_mutex
+        .lock()
+        .map_err(|_| "无法获取RPC管理器锁".to_string())?;
+    let manager = manager
+        .as_ref()
+        .ok_or_else(|| "RPC管理器未初始化".to_string())?;
+
+    // 构建取消下载的RPC请求
+    let request = Aria2JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        method: "aria2.remove".to_string(),
+        params: vec![
+            format!("token:{}", manager.secret).into(),
+            gid.to_string().into(),
+        ],
+        id: std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
+    };
+
+    // 发送RPC请求
+    let response = send_rpc_request_async(manager, &request)
+        .await
+        .map_err(|e| {
+            log_error!("发送取消下载请求失败: {}", e);
+            e
+        })?;
+
+    log_info!("下载任务取消成功: GID={}", gid);
+    Ok(format!("下载任务已成功取消: {}", gid))
+}
+
 /// 通过aria2c的RPC接口下载文件
 ///
 /// # 参数
@@ -1301,6 +1357,46 @@ pub async fn download_via_aria2(
                     log_info!("[{}] 检测到应用正在关闭，中断下载任务", task_id_clone);
                     let _ = tx.send(Err("下载被取消：应用程序正在关闭".to_string()));
                     return;
+                }
+
+                // 检查是否有取消下载请求
+                if let Ok(cancel_requests) = CANCEL_DOWNLOAD_REQUESTS.lock() {
+                    if cancel_requests.contains(&task_id_clone) {
+                        log_info!("[{}] 收到取消下载请求", task_id_clone);
+                        // 从取消请求列表中移除
+                        drop(cancel_requests); // 先释放锁
+                        if let Ok(mut cancel_requests_mut) = CANCEL_DOWNLOAD_REQUESTS.lock() {
+                            cancel_requests_mut.remove(&task_id_clone);
+                        }
+
+                        // 发送取消事件
+                        let _ = app_handle_for_events.emit_to(
+                            "main",
+                            "download-canceled",
+                            &serde_json::json!({
+                                "taskId": task_id_clone.clone(),
+                                "filename": display_filename.clone()
+                            }),
+                        );
+
+                        // 真正取消下载任务
+                        let gid_clone = gid.clone();
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap_or_else(|e| {
+                                log_error!("创建运行时失败: {}", e);
+                                panic!("无法创建运行时");
+                            });
+                            rt.block_on(async {
+                                if let Err(e) = cancel_download(&gid_clone).await {
+                                    log_error!("取消下载任务失败: {}", e);
+                                }
+                            });
+                        });
+
+                        // 返回特殊的错误信息表示用户取消下载，但不显示错误提示
+                        let _ = tx.send(Err("用户取消下载".to_string()));
+                        return;
+                    }
                 }
 
                 std::thread::sleep(progress_interval);

@@ -37,7 +37,8 @@ pub fn run() {
             commands::open_file_manager_window,
             commands::open_server_list_window,
             commands::get_nmd_files,
-            commands::delete_nmd_file
+            commands::delete_nmd_file,
+            commands::cancel_download
         ])
         // 添加应用启动时的初始化逻辑
         .setup(|app| Ok(init::initialize_app(app)?))

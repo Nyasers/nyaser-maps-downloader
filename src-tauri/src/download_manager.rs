@@ -325,13 +325,16 @@ pub async fn download_and_extract(
         }
         Err(err) => {
             log_error!("文件下载失败 [{}]: 错误={}", task_id, err);
-            // 显示下载失败对话框
-            show_dialog(
-                &app_handle,
-                &format!("下载失败: {}", err),
-                MessageDialogKind::Error,
-                "下载失败",
-            );
+            // 检查是否是用户取消下载
+            if err != "用户取消下载" {
+                // 只对真正的错误显示对话框
+                show_dialog(
+                    &app_handle,
+                    &format!("下载失败: {}", err),
+                    MessageDialogKind::Error,
+                    "下载失败",
+                );
+            }
             return Err(err);
         }
     };
