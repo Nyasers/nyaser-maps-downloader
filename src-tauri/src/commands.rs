@@ -28,12 +28,26 @@ use crate::{
 const DOWNLOAD_INTERCEPTOR_HTML: &[u8] = {
     #[cfg(debug_assertions)]
     {
-        include_bytes!("../html/middleware.html")
+        include_bytes!("../asset/html/middleware.html")
     }
 
     #[cfg(not(debug_assertions))]
     {
-        include_bytes!("../dist/middleware.html")
+        include_bytes!("../dist/html/middleware.html")
+    }
+};
+
+// 根据构建模式选择使用的JavaScript文件
+// 在debug模式下使用未压缩的.js文件，在release模式下使用压缩的.js文件
+const SERVER_LIST_BUTTON_JS: &[u8] = {
+    #[cfg(debug_assertions)]
+    {
+        include_bytes!("../asset/js/server-list-button.js")
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        include_bytes!("../dist/js/server-list-button.js")
     }
 };
 
@@ -331,6 +345,37 @@ pub fn open_server_list_window(app_handle: AppHandle) -> Result<String, String> 
                 }
             }
 
+            // 从嵌入式资源中读取JavaScript代码并执行
+            std::thread::spawn(move || {
+                // 使用根据构建模式选择的JavaScript文件
+
+                // 将字节数组转换为字符串
+                let js_code = match std::str::from_utf8(SERVER_LIST_BUTTON_JS) {
+                    Ok(content) => content.to_string(),
+                    Err(e) => {
+                        log_error!("无法解析server-list-button.js文件内容: {:?}", e);
+                        // 如果无法解析文件，使用内联备份代码
+                        r#"
+                        (function() {
+                            try {
+                                const button = document.querySelector('#app-container > div > section > main > div > form > div > div > button');
+                                if (button) {
+                                    button.click();
+                                }
+                            } catch (e) {
+                                console.error('Nyaser Maps Downloader: 执行按钮点击时出错:', e);
+                            }
+                        })();
+                        "#.to_string()
+                    }
+                };
+
+                // 执行JavaScript代码
+                if let Err(e) = window.eval(&js_code) {
+                    log_error!("在服务器列表窗口执行JavaScript失败: {:?}", e);
+                }
+            });
+
             log_info!("服务器列表窗口已成功打开");
             Ok("服务器列表窗口已打开".to_string())
         }
@@ -598,10 +643,18 @@ pub async fn install(url: &str, app_handle: AppHandle) -> Result<String, String>
 /// - 成功时返回包含成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 #[tauri::command(async)]
-pub async fn cancel_download(task_id: &str, app_handle: AppHandle, reason: Option<&str>) -> Result<String, String> {
+pub async fn cancel_download(
+    task_id: &str,
+    app_handle: AppHandle,
+    reason: Option<&str>,
+) -> Result<String, String> {
     // 处理取消下载原因，如果没有提供则默认为普通取消
     let cancel_reason = reason.unwrap_or("normal");
-    log_info!("接收到取消下载任务请求: 任务ID={}, 原因={}", task_id, cancel_reason);
+    log_info!(
+        "接收到取消下载任务请求: 任务ID={}, 原因={}",
+        task_id,
+        cancel_reason
+    );
 
     // 检查并处理等待队列中的任务
     let mut queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
@@ -624,7 +677,11 @@ pub async fn cancel_download(task_id: &str, app_handle: AppHandle, reason: Optio
         // 将任务ID和取消原因添加到取消下载请求列表
         if let Ok(mut cancel_requests) = crate::aria2c::CANCEL_DOWNLOAD_REQUESTS.lock() {
             cancel_requests.insert(task_id.to_string(), cancel_reason.to_string());
-            log_info!("已将任务ID {} 添加到取消下载请求列表，取消原因: {}", task_id, cancel_reason);
+            log_info!(
+                "已将任务ID {} 添加到取消下载请求列表，取消原因: {}",
+                task_id,
+                cancel_reason
+            );
         } else {
             log_error!("无法锁定取消下载请求列表");
         }
@@ -742,7 +799,10 @@ pub async fn cancel_all_downloads(app_handle: AppHandle) -> Result<String, Strin
         if let Ok(mut cancel_requests) = crate::aria2c::CANCEL_DOWNLOAD_REQUESTS.lock() {
             for task_id in &active_task_ids {
                 cancel_requests.insert(task_id.clone(), "cancelled_all".to_string());
-                log_info!("已将任务ID {} 添加到取消下载请求列表，取消原因: cancelled_all", task_id);
+                log_info!(
+                    "已将任务ID {} 添加到取消下载请求列表，取消原因: cancelled_all",
+                    task_id
+                );
 
                 // 发送取消下载事件给前端，包含任务ID
                 let _ = app_handle.emit_to(

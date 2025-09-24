@@ -4,7 +4,7 @@
   "version": "1.5.1",
   "identifier": "top.nyaser.maps",
   "build": {
-    "frontendDist": "./dist/frontend"
+    "frontendDist": "./dist/html/frontend"
   },
   "app": {
     "withGlobalTauri": true,
