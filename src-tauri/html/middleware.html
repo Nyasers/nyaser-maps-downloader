@@ -120,6 +120,19 @@
     position: relative;
   }
 
+  /* 进度条容器的小白条动画 - 基于总进度宽度 */
+  .nmd-progress::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    animation: shine 2s infinite;
+    pointer-events: none;
+  }
+
   /* 进度条 - 动画和渐变效果 */
   .nmd-progress-bar {
     height: 100%;
@@ -130,24 +143,13 @@
     position: relative;
   }
 
-  .nmd-progress-bar::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 50%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-    animation: shine 2s infinite;
-  }
-
   @keyframes shine {
     0% {
       left: -100%;
     }
 
     100% {
-      left: 200%;
+      left: 100%;
     }
   }
 
