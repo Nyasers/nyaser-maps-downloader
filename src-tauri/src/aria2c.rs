@@ -1114,13 +1114,8 @@ pub fn get_aria2c_path() -> PathBuf {
 /// - 成功时返回包含成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 pub async fn cancel_download(gid: &str) -> Result<String, String> {
-    log_info!("尝试取消下载任务: GID={}", gid);
-
     // 获取RPC管理器实例
-    let manager_mutex = get_rpc_manager().map_err(|e| {
-        log_error!("获取RPC管理器失败: {}", e);
-        e
-    })?;
+    let manager_mutex = get_rpc_manager().map_err(|e| e)?;
 
     let manager = manager_mutex
         .lock()
@@ -1144,15 +1139,26 @@ pub async fn cancel_download(gid: &str) -> Result<String, String> {
     };
 
     // 发送RPC请求
-    let _response = send_rpc_request_async(manager, &request)
-        .await
-        .map_err(|e| {
-            log_error!("发送取消下载请求失败: {}", e);
-            e
-        })?;
-
-    log_info!("下载任务取消成功: GID={}", gid);
-    Ok(format!("下载任务已成功取消: {}", gid))
+    match send_rpc_request_async(manager, &request).await {
+        Ok(response_str) => {
+            // 尝试解析响应
+            match serde_json::from_str::<serde_json::Value>(&response_str) {
+                Ok(response_json) => {
+                    // 检查响应中是否包含错误
+                    if response_json.get("error").is_some() {
+                        let error_msg = response_json["error"]["message"]
+                            .as_str()
+                            .unwrap_or("未知错误");
+                        Err(error_msg.to_string())
+                    } else {
+                        Ok(format!("下载任务已成功取消: {}", gid))
+                    }
+                }
+                Err(e) => Err(format!("解析RPC响应失败: {}", e)),
+            }
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// 通过aria2c的RPC接口下载文件
@@ -1380,7 +1386,7 @@ pub async fn download_via_aria2(
                         );
 
                         // 发送队列更新事件，确保前端正确更新队列显示
-                        let (total_tasks, queue_size, active_tasks_count, waiting_tasks) = {
+                        let (total_tasks, active_tasks_count, waiting_tasks) = {
                             let queue = (&*crate::download_manager::DOWNLOAD_QUEUE).lock().unwrap();
                             let size = queue.queue.len();
                             let active = queue.active_tasks.len();
@@ -1394,7 +1400,7 @@ pub async fn download_via_aria2(
                                     })
                                     .collect::<Vec<_>>();
 
-                            (total, size, active, tasks)
+                            (total, active, tasks)
                         };
 
                         let _ = app_handle_for_events.emit_to(

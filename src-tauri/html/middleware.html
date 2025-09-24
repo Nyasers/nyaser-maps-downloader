@@ -1,221 +1,427 @@
 <!-- Nyaser Maps Downloader Interceptor HTML Fragment -->
 <style>
-  /* 下载任务容器 */
+  /* 全局样式重置 */
+  * {
+    box-sizing: border-box;
+  }
+
+  /* 下载任务容器 - 扩大宽度以适应内容 */
   .nmd-container {
     position: fixed;
     bottom: 20px;
     left: 20px;
+    max-width: 90vw;
     z-index: 9999;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
+    animation: fadeIn 0.3s ease-out;
   }
 
-  /* 单个下载任务组件 */
+  /* 淡入动画 */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* 单个下载任务组件 - 现代卡片设计 */
   .nmd-task {
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    border-radius: 5px;
-    padding: 10px 15px;
-    min-width: 300px;
-    font-family: Arial, sans-serif;
+    background: rgba(26, 32, 44, 0.75);
+    backdrop-filter: blur(8px);
+    color: #ffffff;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: 14px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-    transition: opacity 0.3s ease;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  /* 任务头部 */
+  .nmd-task:hover {
+    box-shadow: 0 6px 25px rgba(0, 0, 0, 0.5);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  /* 任务头部 - 优化布局和对齐 */
   .nmd-task-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
-    gap: 8px;
+    margin-bottom: 10px;
+    gap: 12px;
   }
 
-  /* 文件名 */
+  /* 文件名 - 增强视觉层次 */
   .nmd-task-filename {
-    font-weight: bold;
+    font-weight: 600;
+    font-size: 14px;
+    color: #ffffff;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1;
   }
 
-  /* 任务状态 */
+  /* 任务状态 - 颜色编码 */
   .nmd-task-status {
-    margin-left: 10px;
     font-size: 12px;
-    opacity: 0.8;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffd54f;
   }
 
-  /* 取消按钮样式 */
+  /* 取消按钮样式 - 现代扁平化设计 */
   .nmd-cancel-button {
-    background: rgba(244, 67, 54, 0.8);
+    background: #ef4444;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     color: white;
-    padding: 4px 10px;
-    font-size: 12px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     white-space: nowrap;
   }
 
-  .nmd-cancel-button:hover {
-    background: rgba(244, 67, 54, 1);
+  .nmd-cancel-button:hover:not(:disabled) {
+    background: #dc2626;
+    /* 移除Y轴平移以避免触发布局变化 */
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+  }
+
+  .nmd-cancel-button:active:not(:disabled) {
+    transform: translateY(0);
   }
 
   .nmd-cancel-button:disabled {
-    background: rgba(158, 158, 158, 0.5);
+    background: #4b5563;
     cursor: not-allowed;
+    transform: none;
   }
 
-  /* 进度条容器 */
+  /* 进度条容器 - 更现代的外观 */
   .nmd-progress {
     width: 100%;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 2px;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
     overflow: hidden;
+    position: relative;
   }
 
-  /* 进度条 */
+  /* 进度条 - 动画和渐变效果 */
   .nmd-progress-bar {
     height: 100%;
-    background: #4CAF50;
+    background: linear-gradient(90deg, #4ade80, #22c55e);
     width: 0%;
-    transition: width 0.1s ease;
-    border-radius: 2px;
+    transition: width 0.3s ease;
+    border-radius: 4px;
+    position: relative;
+  }
+
+  .nmd-progress-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    animation: shine 2s infinite;
+  }
+
+  @keyframes shine {
+    0% {
+      left: -100%;
+    }
+
+    100% {
+      left: 200%;
+    }
+  }
+
+  /* 进度信息区域 */
+  .nmd-progress-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 6px;
   }
 
   /* 进度百分比 */
   .nmd-progress-text {
-    font-size: 12px;
-    opacity: 0.8;
-    text-align: right;
-    margin-top: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #94a3b8;
   }
 
-  /* 原始aria2c输出 */
+  /* 原始aria2c输出 - 更清晰的显示 */
   .nmd-raw-output {
-    font-size: 11px;
-    color: #888;
-    margin-top: 4px;
-    padding: 4px 8px;
-    background: rgba(0, 0, 0, 0.1);
-    border-radius: 3px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    font-family: monospace;
+    min-height: 20px;
+    max-height: 80px;
     white-space: nowrap;
+    min-width: 100%;
   }
 
-  /* 警告通知 */
+  /* 警告通知 - 更醒目的设计 */
   .nmd-warning {
     position: fixed;
     bottom: 20px;
     right: 20px;
-    padding: 10px 20px;
-    background: rgba(255, 152, 0, 0.9);
+    max-width: 350px;
+    padding: 14px 20px;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
     color: white;
-    border-radius: 5px;
+    border-radius: 8px;
     z-index: 9998;
-    max-width: 300px;
-    font-family: Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 4px 20px rgba(245, 158, 11, 0.3);
     display: none;
+    animation: slideInRight 0.3s ease-out;
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
-  /* 排队任务容器 */
+  /* 右侧滑入动画 */
+  @keyframes slideInRight {
+    from {
+      opacity: 0;
+      transform: translateX(20px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  /* 排队任务容器 - 更现代的卡片样式 */
   .nmd-queue-container {
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(30, 41, 59, 0.75);
+    backdrop-filter: blur(8px);
     color: white;
-    border-radius: 5px;
-    padding: 10px 15px;
-    min-width: 300px;
-    font-family: Arial, sans-serif;
+    border-radius: 8px;
+    padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: 14px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  /* 排队任务标题 */
+  /* 排队任务标题 - 更清晰的分组 */
   .nmd-queue-title {
-    font-weight: bold;
-    margin-bottom: 8px;
-    font-size: 13px;
-    color: #ccc;
+    font-weight: 600;
+    margin-bottom: 12px;
+    font-size: 14px;
+    color: #cbd5e1;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   }
 
-  /* 排队任务列表 */
+  /* 队列操作按钮组 */
+  .nmd-queue-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  /* 队列操作按钮 - 改进样式和交互 */
+  .nmd-queue-action-button {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #e2e8f0;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .nmd-queue-action-button:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+  }
+
+  .nmd-queue-action-button:active {
+    transform: translateY(0);
+  }
+
+  /* 刷新按钮特定样式 */
+  .nmd-queue-action-button.refresh {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: #93c5fd;
+  }
+
+  .nmd-queue-action-button.refresh:hover {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(59, 130, 246, 0.5);
+  }
+
+  /* 全部取消按钮特定样式 */
+  .nmd-queue-action-button.cancel-all {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #fca5a5;
+  }
+
+  .nmd-queue-action-button.cancel-all:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.5);
+  }
+
+  /* 排队任务列表 - 改进滚动条样式 */
   .nmd-queue-list {
     max-height: 300px;
     overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.05);
   }
 
-  /* 单个排队任务 */
+  .nmd-queue-list::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .nmd-queue-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+  }
+
+  .nmd-queue-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+  }
+
+  .nmd-queue-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  /* 单个排队任务 - 更现代的行项目设计 */
   .nmd-queue-task {
-    padding: 8px 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    font-size: 12px;
+    padding: 10px 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 13px;
     display: flex;
     align-items: center;
-    transition: background-color 0.2s;
+    gap: 10px;
+    transition: all 0.2s ease;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    background: rgba(26, 32, 44, 0.75);
   }
 
   .nmd-queue-task:hover {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: rgba(26, 32, 44, 0.85);
+    /* 移除X轴平移以避免出现横向滚动条 */
   }
 
   .nmd-queue-task:last-child {
     border-bottom: none;
+    margin-bottom: 0;
   }
 
-  /* 排队任务文件名 */
+  /* 排队任务文件名 - 更好的视觉权重 */
   .nmd-queue-task-filename {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
-    margin-right: 8px;
+    font-weight: 500;
+    color: #e2e8f0;
   }
 
-  /* 排队任务位置 */
+  /* 排队任务位置 - 改进徽章样式 */
   .nmd-queue-task-position {
-    background: rgba(255, 152, 0, 0.7);
-    border-radius: 10px;
-    padding: 2px 8px;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    border-radius: 12px;
+    padding: 3px 10px;
     font-size: 11px;
-    margin-right: 10px;
+    font-weight: 600;
+    color: white;
+    min-width: 40px;
+    text-align: center;
   }
 
-  /* 排队任务取消按钮 */
+  /* 排队任务取消按钮 - 更小巧现代的设计 */
   .nmd-queue-task-cancel {
-    background: #f44336;
-    color: white;
-    border: none;
+    background: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.3);
     padding: 4px 12px;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     font-size: 12px;
-    transition: background-color 0.3s;
+    font-weight: 500;
+    transition: all 0.3s ease;
   }
 
   .nmd-queue-task-cancel:hover {
-    background: #d32f2f;
+    background: rgba(239, 68, 68, 0.3);
+    color: #fecaca;
+    border-color: rgba(239, 68, 68, 0.5);
   }
 
   .nmd-queue-task-cancel:active {
-    background: #b71c1c;
+    background: rgba(239, 68, 68, 0.4);
   }
 
-  /* 队列为空时显示 */
+  /* 队列为空时显示 - 更优雅的提示 */
   .nmd-queue-empty {
     text-align: center;
-    color: #888;
-    font-size: 12px;
-    padding: 10px 0;
+    color: #64748b;
+    font-size: 13px;
+    padding: 20px 10px;
+    font-style: italic;
+  }
+
+  /* 响应式设计 - 小屏幕优化 */
+  @media (max-width: 600px) {
+    .nmd-container {
+      right: 10px;
+      left: 10px;
+      max-width: none;
+    }
+
+    .nmd-task,
+    .nmd-queue-container {
+      padding: 10px 12px;
+    }
+
+    .nmd-cancel-button {
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    .nmd-queue-action-button {
+      padding: 4px 8px;
+      font-size: 11px;
+    }
   }
 </style>
 <script>
@@ -315,6 +521,11 @@
         progressText.className = 'nmd-progress-text';
         progressText.textContent = '0%';
 
+        // 创建进度信息容器
+        const progressInfo = document.createElement('div');
+        progressInfo.className = 'nmd-progress-info';
+        progressInfo.appendChild(progressText);
+
         // 创建原始aria2c输出显示
         const rawOutputElement = document.createElement('div');
         rawOutputElement.className = 'nmd-raw-output';
@@ -327,7 +538,7 @@
         progressContainer.appendChild(progressBar);
         taskElement.appendChild(taskHeader);
         taskElement.appendChild(progressContainer);
-        taskElement.appendChild(progressText);
+        taskElement.appendChild(progressInfo);
         taskElement.appendChild(rawOutputElement);
 
         // 添加到容器
@@ -366,6 +577,11 @@
             if (activeTasks.size === 0) {
               downloadsContainer.style.display = 'none';
             }
+
+            window.__TAURI__.core.invoke('refresh_download_queue')
+              .catch(error => {
+                console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
+              });
           }, 300);
         }
       }
@@ -720,9 +936,22 @@
             task.status.textContent = '等待解压';
             task.progress.style.width = '100%';
             task.progressText.textContent = '100%';
+
+            // 任务完成后移除取消按钮
+            if (task.cancelButton && task.cancelButton.parentNode) {
+              task.cancelButton.parentNode.removeChild(task.cancelButton);
+              console.log('Nyaser Maps Downloader: 下载完成，已移除取消按钮:', taskId);
+            }
+
             // 在控制台输出下载完成信息
             console.log('Nyaser Maps Downloader: 文件下载完成，准备解压:', message);
           }
+
+          // 刷新下载队列
+          window.__TAURI__.core.invoke('refresh_download_queue')
+            .catch(error => {
+              console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
+            });
         });
 
         // 监听解压开始事件
@@ -824,6 +1053,12 @@
 
           // 在控制台输出任务开始信息
           console.log('Nyaser Maps Downloader: 开始下载任务:', taskId, decodedFilename);
+
+          // 刷新下载队列
+          window.__TAURI__.core.invoke('refresh_download_queue')
+            .catch(error => {
+              console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
+            });
         });
 
         // 监听下载任务添加事件
@@ -837,6 +1072,12 @@
 
           // 在控制台输出任务添加信息
           console.log('Nyaser Maps Downloader: 任务添加到队列:', taskId, decodedFilename);
+
+          // 刷新下载队列
+          window.__TAURI__.core.invoke('refresh_download_queue')
+            .catch(error => {
+              console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
+            });
         });
 
         // 监听下载队列更新事件
@@ -872,7 +1113,64 @@
           queueList.innerHTML = '';
 
           // 更新标题
-          queueTitle.textContent = `排队任务 (${waitingTasks.length})`;
+          queueTitle.innerHTML = `排队任务 (${waitingTasks.length})`;
+
+          // 创建按钮容器
+          const actionsContainer = document.createElement('div');
+          actionsContainer.className = 'nmd-queue-actions';
+
+          // 添加刷新按钮
+          const refreshButton = document.createElement('button');
+          refreshButton.className = 'nmd-queue-action-button refresh';
+          refreshButton.textContent = '刷新';
+          refreshButton.title = '刷新队列状态';
+          refreshButton.addEventListener('click', async () => {
+            try {
+              console.log('Nyaser Maps Downloader: 刷新队列状态');
+              // 请求后端刷新队列
+              await window.__TAURI__.core.invoke('refresh_download_queue');
+            } catch (error) {
+              console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
+              warningDisplay.textContent = '错误: 刷新队列失败 - ' + error.message;
+              warningDisplay.style.display = 'block';
+              warningDisplay.style.background = 'rgba(244, 67, 54, 0.9)';
+
+              setTimeout(() => {
+                warningDisplay.style.display = 'none';
+                warningDisplay.style.background = 'rgba(255, 152, 0, 0.9)';
+              }, 5000);
+            }
+          });
+          actionsContainer.appendChild(refreshButton);
+
+          // 添加全部取消按钮
+          const cancelAllButton = document.createElement('button');
+          cancelAllButton.className = 'nmd-queue-action-button cancel-all';
+          cancelAllButton.textContent = '全部取消';
+          cancelAllButton.title = '取消所有排队任务';
+          cancelAllButton.addEventListener('click', async () => {
+            if (waitingTasks && waitingTasks.length > 0) {
+              try {
+                console.log('Nyaser Maps Downloader: 取消所有排队任务');
+                // 请求后端取消所有排队任务
+                await window.__TAURI__.core.invoke('cancel_all_downloads');
+              } catch (error) {
+                console.error('Nyaser Maps Downloader: 取消所有排队任务失败:', error);
+                warningDisplay.textContent = '错误: 取消所有排队任务失败 - ' + error.message;
+                warningDisplay.style.display = 'block';
+                warningDisplay.style.background = 'rgba(244, 67, 54, 0.9)';
+
+                setTimeout(() => {
+                  warningDisplay.style.display = 'none';
+                  warningDisplay.style.background = 'rgba(255, 152, 0, 0.9)';
+                }, 5000);
+              }
+            }
+          });
+          actionsContainer.appendChild(cancelAllButton);
+
+          // 将按钮容器添加到标题
+          queueTitle.appendChild(actionsContainer);
 
           // 如果有等待任务，显示队列容器
           if (waitingTasks && waitingTasks.length > 0) {
@@ -1001,6 +1299,12 @@
               warningDisplay.style.background = '#ff9800'; // 恢复橙色背景
             }, 10000);
           }
+
+          // 刷新下载队列
+          window.__TAURI__.core.invoke('refresh_download_queue')
+            .catch(error => {
+              console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
+            });
         });
 
         // 监听下载取消事件
@@ -1023,6 +1327,12 @@
               removeTaskElement(taskId);
             }, 5000);
           }
+
+          // 刷新下载队列
+          window.__TAURI__.core.invoke('refresh_download_queue')
+            .catch(error => {
+              console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
+            });
         });
 
         // 完成事件监听器注册成功
