@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "tauri": "tauri",
+    "build": "set NODE_ENV=production && npm run tauri build",
     "pretauri": "node version.js && npm install && node minify.js"
   },
   "devDependencies": {
