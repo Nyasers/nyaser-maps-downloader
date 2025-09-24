@@ -29,3 +29,4 @@ tauri-plugin-dialog = "2"
 tokio = { version = "1.47.1", features = ["time", "signal"] }
 chrono = "0.4.42"
 winapi = { version = "0.3.9", features = ["fileapi", "winbase", "libloaderapi", "shellapi"] }
+urlencoding = "2.1.3"

@@ -322,6 +322,53 @@ pub async fn process_download_queue(app_handle: AppHandle) {
     .await;
 }
 
+/// 更新下载队列状态 - 获取当前队列状态并向前端发送更新
+///
+/// 此函数会获取当前下载队列的状态（等待任务、总任务数和活跃任务数），
+/// 并向前端发送队列更新事件，用于刷新前端显示。
+///
+/// # 参数
+/// - `app_handle`: Tauri应用句柄，用于发送事件通知
+pub fn update_download_queue_status(app_handle: &AppHandle) {
+    log_info!("更新下载队列状态");
+
+    // 获取队列状态信息
+    let (total_tasks, active_tasks_count, waiting_tasks) = {
+        let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
+        let size = queue.queue.len();
+        let active = queue.active_tasks.len();
+        let total = size + active;
+
+        // 构建等待任务列表（转换为可序列化的格式）
+        let tasks = queue.queue
+                .iter()
+                .map(|task| {
+                    serde_json::json!({"id": task.id, "url": task.url, "filename": task.filename})
+                })
+                .collect::<Vec<_>>();
+
+        (total, active, tasks)
+    };
+
+    // 发送队列更新事件通知
+    let _ = app_handle.emit_to(
+        "main",
+        "download-queue-update",
+        &serde_json::json!({
+            "queue": {"waiting_tasks": waiting_tasks,
+                       "total_tasks": total_tasks,
+                       "active_tasks": active_tasks_count}
+        }),
+    );
+
+    log_debug!(
+        "下载队列状态更新完成: 等待任务数={}, 活跃任务数={}, 总任务数={}",
+        waiting_tasks.len(),
+        active_tasks_count,
+        total_tasks
+    );
+}
+
 /// 下载并解压文件 - 执行地图文件的下载和解压操作
 ///
 /// 此函数首先使用aria2c下载文件，然后将解压任务添加到解压队列中，由解压队列异步处理解压操作。
@@ -358,7 +405,7 @@ pub async fn download_and_extract(
                 // 只对真正的错误显示对话框
                 show_dialog(
                     &app_handle,
-                    &format!("下载失败: {}", err),
+                    &err,
                     MessageDialogKind::Error,
                     "下载失败",
                 );

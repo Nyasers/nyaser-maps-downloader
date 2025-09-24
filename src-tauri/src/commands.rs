@@ -598,8 +598,10 @@ pub async fn install(url: &str, app_handle: AppHandle) -> Result<String, String>
 /// - 成功时返回包含成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 #[tauri::command(async)]
-pub async fn cancel_download(task_id: &str, app_handle: AppHandle) -> Result<String, String> {
-    log_info!("接收到取消下载任务请求: 任务ID={}", task_id);
+pub async fn cancel_download(task_id: &str, app_handle: AppHandle, reason: Option<&str>) -> Result<String, String> {
+    // 处理取消下载原因，如果没有提供则默认为普通取消
+    let cancel_reason = reason.unwrap_or("normal");
+    log_info!("接收到取消下载任务请求: 任务ID={}, 原因={}", task_id, cancel_reason);
 
     // 检查并处理等待队列中的任务
     let mut queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
@@ -619,10 +621,10 @@ pub async fn cancel_download(task_id: &str, app_handle: AppHandle) -> Result<Str
         // 从活跃任务中移除，避免重复处理
         queue.active_tasks.remove(task_id);
 
-        // 将任务ID添加到取消下载请求列表
+        // 将任务ID和取消原因添加到取消下载请求列表
         if let Ok(mut cancel_requests) = crate::aria2c::CANCEL_DOWNLOAD_REQUESTS.lock() {
-            cancel_requests.insert(task_id.to_string());
-            log_info!("已将任务ID {} 添加到取消下载请求列表", task_id);
+            cancel_requests.insert(task_id.to_string(), cancel_reason.to_string());
+            log_info!("已将任务ID {} 添加到取消下载请求列表，取消原因: {}", task_id, cancel_reason);
         } else {
             log_error!("无法锁定取消下载请求列表");
         }
@@ -739,8 +741,8 @@ pub async fn cancel_all_downloads(app_handle: AppHandle) -> Result<String, Strin
     if !active_task_ids.is_empty() {
         if let Ok(mut cancel_requests) = crate::aria2c::CANCEL_DOWNLOAD_REQUESTS.lock() {
             for task_id in &active_task_ids {
-                cancel_requests.insert(task_id.clone());
-                log_info!("已将任务ID {} 添加到取消下载请求列表", task_id);
+                cancel_requests.insert(task_id.clone(), "cancelled_all".to_string());
+                log_info!("已将任务ID {} 添加到取消下载请求列表，取消原因: cancelled_all", task_id);
 
                 // 发送取消下载事件给前端，包含任务ID
                 let _ = app_handle.emit_to(

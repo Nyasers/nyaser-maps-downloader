@@ -863,7 +863,7 @@
         // 检查并移除长时间无响应的下载任务
         function checkStalledDownloads() {
           const currentTime = Date.now();
-          const stallThreshold = 30000; // 30秒无更新则视为停滞
+          const stallThreshold = 3e4; // 30秒无更新则视为停滞
 
           activeTasks.forEach((task, taskId) => {
             const lastUpdateTime = lastUpdateTimes.get(taskId);
@@ -871,6 +871,19 @@
               // 更新状态为下载中断
               task.status.textContent = '下载中断';
               task.progress.style.background = '#ff9800'; // 橙色背景表示警告
+
+              // 向后端发送特殊的取消下载命令，表示这是因为下载停滞而取消的
+              try {
+                if (window.__TAURI__?.core?.invoke) {
+                  window.__TAURI__.core.invoke('cancel_download', {
+                    taskId: taskId,
+                    reason: 'stalled' // 添加reason参数标记这是由于下载停滞而取消的
+                  });
+                  console.log('Nyaser Maps Downloader: 检测到下载停滞，已取消下载任务:', taskId);
+                }
+              } catch (error) {
+                console.error('Nyaser Maps Downloader: 取消停滞下载失败:', error);
+              }
 
               // 再显示5秒后移除
               setTimeout(() => {
