@@ -567,8 +567,13 @@
                             });
 
                             // 将文件HTML插入到分组HTML中
-                            const filesStartPos = groupHtml.indexOf('<!-- 文件项将动态插入这里 -->');
-                            groupHtml = groupHtml.substring(0, filesStartPos) + filesHtml + groupHtml.substring(filesStartPos);
+                            const tempDiv = document.createElement('div');
+                            tempDiv.innerHTML = groupHtml;
+                            const groupFilesElement = tempDiv.querySelector('.group-files');
+                            if (groupFilesElement) {
+                                groupFilesElement.innerHTML = filesHtml;
+                            }
+                            groupHtml = tempDiv.innerHTML;
 
                             // 将分组HTML添加到总HTML中
                             html += groupHtml;
