@@ -755,65 +755,31 @@ pub async fn refresh_download_queue(app_handle: AppHandle) -> Result<String, Str
     ))
 }
 
-/// 取消所有下载任务 - 从下载队列中移除所有等待的任务并取消正在下载的任务
-///
-/// 此函数会清空下载队列中的所有等待任务，并取消所有正在下载的任务，
-/// 同时向前端发送队列更新和任务取消的事件通知。
-///
-/// # 参数
-/// - `app_handle`: Tauri应用句柄，用于发送事件通知
-///
-/// # 返回值
-/// - 成功时返回包含成功信息的Ok
-/// - 失败时返回包含错误信息的Err
+/// 取消所有排队任务但保留当前正在下载的任务
 #[tauri::command(async)]
 pub async fn cancel_all_downloads(app_handle: AppHandle) -> Result<String, String> {
-    log_info!("接收到取消所有下载任务请求");
+    log_info!("接收到取消所有排队任务请求");
 
-    let mut active_task_ids = Vec::new();
-    let queue_tasks_count; // 延迟初始化，避免未使用赋值警告
+    let queue_tasks_count;
 
-    // 处理等待队列和活跃任务
+    // 只处理等待队列，保留活跃任务
     {
         let mut queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
 
-        // 清空等待队列
+        // 记录等待队列中的任务数量
         queue_tasks_count = queue.queue.len();
+
+        // 清空等待队列
         queue.queue.clear();
 
-        // 收集活跃任务ID
-        active_task_ids.extend(queue.active_tasks.clone());
-
-        // 清空活跃任务集合
-        queue.active_tasks.clear();
+        // 获取活跃任务数量
+        let active_tasks_count = queue.active_tasks.len();
 
         log_info!(
-            "已清空下载队列: {}个等待任务，{}个活跃任务",
+            "已清空下载队列中的等待任务: {}个任务被取消，保留{}个活跃任务",
             queue_tasks_count,
-            active_task_ids.len()
+            active_tasks_count
         );
-    }
-
-    // 处理活跃任务的取消请求
-    if !active_task_ids.is_empty() {
-        if let Ok(mut cancel_requests) = crate::aria2c::CANCEL_DOWNLOAD_REQUESTS.lock() {
-            for task_id in &active_task_ids {
-                cancel_requests.insert(task_id.clone(), "cancelled_all".to_string());
-                log_info!(
-                    "已将任务ID {} 添加到取消下载请求列表，取消原因: cancelled_all",
-                    task_id
-                );
-
-                // 发送取消下载事件给前端，包含任务ID
-                let _ = app_handle.emit_to(
-                    "main",
-                    "download-cancel-requested",
-                    &serde_json::json!({ "taskId": task_id }),
-                );
-            }
-        } else {
-            log_error!("无法锁定取消下载请求列表");
-        }
     }
 
     // 发送队列更新事件通知
@@ -844,10 +810,13 @@ pub async fn cancel_all_downloads(app_handle: AppHandle) -> Result<String, Strin
         }),
     );
 
-    let total_canceled = queue_tasks_count + active_task_ids.len();
-    log_info!("取消所有下载任务处理完成: 共取消 {} 个任务", total_canceled);
+    log_info!(
+        "取消所有排队任务处理完成: 共取消 {} 个任务，保留 {} 个正在下载的任务",
+        queue_tasks_count,
+        active_tasks_count
+    );
     Ok(format!(
-        "已成功请求取消所有下载任务，共 {} 个任务",
-        total_canceled
+        "已成功取消所有排队任务，共取消 {} 个任务，保留 {} 个正在下载的任务",
+        queue_tasks_count, active_tasks_count
     ))
 }

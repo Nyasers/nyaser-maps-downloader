@@ -1344,11 +1344,11 @@ pub async fn download_via_aria2(
                     .last()
                     .unwrap_or("未知文件")
                     .to_string();
-                
+
                 // 使用urlencoding库进行解码
                 match decode(&raw_filename) {
                     Ok(decoded) => decoded.into_owned(),
-                    Err(_) => raw_filename
+                    Err(_) => raw_filename,
                 }
             };
 
@@ -1367,7 +1367,12 @@ pub async fn download_via_aria2(
             let max_consecutive_failures = 8; // 增加连续失败次数阈值，避免过早判定失败
             let start_time = std::time::Instant::now(); // 记录下载开始时间
             let mut last_progress = -1.0; // 记录上次进度，用于检测进度是否真正变化
-            let mut zero_speed_count = 0; // 记录下载速度为0的次数
+            let mut zero_speed_count = 0; // 记录下载速度为0的计次
+            let mut zero_speed_start_time: Option<std::time::Instant> = None; // 记录下载速度首次为0的时间
+            let max_zero_speed_checks = 10; // 最大计次，每秒1次，达到10次后重试
+            let zero_speed_check_interval = std::time::Duration::from_secs(1); // 计时间隔为1秒
+            let mut retry_count = 0; // 重试次数计数
+            let max_retries = 3; // 最大重试次数，达到3次后判定失败
 
             loop {
                 // 检查应用是否正在关闭，如果是则中断下载
@@ -1380,7 +1385,11 @@ pub async fn download_via_aria2(
                 // 检查是否有取消下载请求
                 if let Ok(cancel_requests) = CANCEL_DOWNLOAD_REQUESTS.lock() {
                     if let Some(cancel_reason) = cancel_requests.get(&task_id_clone) {
-                        log_info!("[{}] 收到取消下载请求，原因: {}", task_id_clone, cancel_reason);
+                        log_info!(
+                            "[{}] 收到取消下载请求，原因: {}",
+                            task_id_clone,
+                            cancel_reason
+                        );
                         // 从取消请求列表中移除
                         let reason_clone = cancel_reason.clone();
                         drop(cancel_requests); // 先释放锁
@@ -1391,7 +1400,8 @@ pub async fn download_via_aria2(
                         // 根据取消原因决定是发送取消事件还是失败事件
                         if reason_clone == "stalled" {
                             // 下载停滞视为下载失败
-                            let error_message = format!("下载停滞，无法继续下载: {}", display_filename.clone());
+                            let error_message =
+                                format!("下载停滞，无法继续下载: {}", display_filename.clone());
                             let _ = app_handle_for_events.emit_to(
                                 "main",
                                 "download-failed",
@@ -1457,7 +1467,8 @@ pub async fn download_via_aria2(
 
                         // 根据取消原因返回不同的错误信息
                         if reason_clone == "stalled" {
-                            let error_message = format!("下载停滞，无法继续下载: {}", display_filename.clone());
+                            let error_message =
+                                format!("下载停滞，无法继续下载: {}", display_filename.clone());
                             let _ = tx.send(Err(error_message));
                         } else {
                             let _ = tx.send(Err("用户取消下载".to_string()));
@@ -1608,58 +1619,94 @@ pub async fn download_via_aria2(
 
                         // 检查下载速度是否为0
                         if status.download_speed == 0 {
-                            zero_speed_count += 1;
-                            log_warn!(
-                                "[{}] 下载速度为0，计数: {}",
-                                task_id_clone,
-                                zero_speed_count
-                            );
+                            if zero_speed_start_time.is_none() {
+                                zero_speed_start_time = Some(std::time::Instant::now());
+                                log_warn!("[{}] 检测到下载速度为0，开始每秒计次", task_id_clone);
+                            } else {
+                                let elapsed_zero_speed =
+                                    zero_speed_start_time.as_ref().unwrap().elapsed();
+                                if elapsed_zero_speed
+                                    >= zero_speed_check_interval * (zero_speed_count + 1)
+                                {
+                                    zero_speed_count += 1;
+                                    log_warn!(
+                                        "[{}] 下载速度持续为0，已计次 {}/{} 次",
+                                        task_id_clone,
+                                        zero_speed_count,
+                                        max_zero_speed_checks
+                                    );
+                                }
+                            }
 
-                            // 如果下载速度为0但进度不是100%，需要特别处理
-                            if status.progress < 100.0 && zero_speed_count > 10 {
+                            // 如果下载速度为0但进度不是100%，且达到最大计次，需要进行重试
+                            if status.progress < 100.0 && zero_speed_count >= max_zero_speed_checks
+                            {
                                 log_warn!(
-                                    "[{}] 下载速度长时间为0，重新检查任务状态",
+                                    "[{}] 下载速度持续为0达到最大计次，准备重试下载",
                                     task_id_clone
                                 );
 
-                                // 尝试获取任务列表，确认任务是否存在
-                                let task_exists =
-                                    rt.block_on(check_task_exists(&manager, &gid, &rt));
-                                if !task_exists {
-                                    log_warn!(
-                                        "[{}] 任务可能已不存在，检查文件完整性",
-                                        task_id_clone
+                                retry_count += 1;
+                                log_warn!(
+                                    "[{}] 当前重试次数: {}/{} 次",
+                                    task_id_clone,
+                                    retry_count,
+                                    max_retries
+                                );
+
+                                if retry_count <= max_retries {
+                                    // 尝试取消当前任务
+                                    log_info!("[{}] 取消当前停滞的下载任务", task_id_clone);
+                                    let cancel_result = rt.block_on(cancel_download(&gid));
+                                    if let Err(e) = cancel_result {
+                                        log_error!("[{}] 取消下载任务失败: {}", task_id_clone, e);
+                                    }
+
+                                    // 重新开始下载
+                                    log_info!("[{}] 重新开始下载任务", task_id_clone);
+
+                                    // 取消当前任务并重新下载
+                                    // 1. 发送取消事件
+                                    let _ = app_handle_for_events.emit_to(
+                                        "main",
+                                        "download-canceled",
+                                        &serde_json::json!({
+                                            "taskId": task_id_clone.clone(),
+                                            "filename": display_filename.clone(),
+                                            "reason": "重新下载（速度为0）"
+                                        }),
                                     );
 
-                                    // 检查文件是否存在且不为空
-                                    if let Ok(metadata) = fs::metadata(&file_path_clone) {
-                                        if metadata.len() > 0 {
-                                            log_info!(
-                                                "[{}] 任务文件存在且不为空，进行完整性检查",
-                                                task_id_clone
-                                            );
+                                    // 2. 等待一段时间后继续监控，让系统有时间处理取消事件
+                                    std::thread::sleep(Duration::from_secs(2));
 
-                                            // 等待文件大小稳定
-                                            std::thread::sleep(Duration::from_secs(3));
-
-                                            // 再次检查文件大小
-                                            if let Ok(new_metadata) = fs::metadata(&file_path_clone)
-                                            {
-                                                if new_metadata.len() == metadata.len() {
-                                                    log_info!(
-                                                        "[{}] 文件大小稳定，确认下载完成",
-                                                        task_id_clone
-                                                    );
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
+                                    // 2. 重置计数和计时，继续监控
+                                    zero_speed_count = 0;
+                                    zero_speed_start_time = None;
+                                } else {
+                                    // 达到最大重试次数，判定下载失败
+                                    log_error!("[{}] 已达到最大重试次数，下载失败", task_id_clone);
+                                    let error_message = format!(
+                                        "下载停滞，无法继续下载: {}",
+                                        display_filename.clone()
+                                    );
+                                    let _ = app_handle_for_events.emit_to(
+                                        "main",
+                                        "download-failed",
+                                        &serde_json::json!({
+                                            "taskId": task_id_clone.clone(),
+                                            "filename": display_filename.clone(),
+                                            "error": error_message
+                                        }),
+                                    );
+                                    let _ = tx.send(Err(error_message));
+                                    return;
                                 }
-                                zero_speed_count = 0; // 重置计数
                             }
                         } else {
-                            zero_speed_count = 0; // 重置计数
+                            // 下载速度不为0，重置计数和计时
+                            zero_speed_count = 0;
+                            zero_speed_start_time = None;
                         }
 
                         if status.progress >= 100.0 {
@@ -1827,7 +1874,9 @@ pub async fn download_via_aria2(
 
                         // 定期更新下载队列状态，确保前端能正确显示任务栏
                         if consecutive_failures % 3 == 0 {
-                            let _ = crate::download_manager::update_download_queue_status(&app_handle_for_events);
+                            let _ = crate::download_manager::update_download_queue_status(
+                                &app_handle_for_events,
+                            );
                         }
 
                         // 如果连续失败次数过多，认为下载失败
@@ -1842,23 +1891,31 @@ pub async fn download_via_aria2(
                                 if metadata.len() > 0 {
                                     // 构建aria2临时文件路径: 原文件名.aria2
                                     let aria2_file_path = file_path_clone.with_extension("aria2");
-                                    
+
                                     log_info!("[{}] 虽然状态查询失败，但文件已存在且大小为 {} 字节，检查aria2临时文件", 
                                          task_id_clone, metadata.len());
-                                         
+
                                     // 如果aria2临时文件不存在，说明下载可能已经完成，继续处理文件
                                     // 注意：aria2会在开始下载前预分配空间，所以文件大小不一定表示已下载完成
                                     if !aria2_file_path.exists() {
                                         log_info!("[{}] aria2临时文件不存在，文件可能已下载完成，继续处理", task_id_clone);
                                         break;
                                     } else {
-                                        log_warn!("[{}] aria2临时文件仍然存在，下载可能正在进行中", task_id_clone);
+                                        log_warn!(
+                                            "[{}] aria2临时文件仍然存在，下载可能正在进行中",
+                                            task_id_clone
+                                        );
                                         // 如果临时文件存在，先检查文件大小是否合理
                                         // 考虑到aria2的预分配机制，我们不应该仅仅因为文件小就判定失败
                                         // 只在文件特别小（0字节）时才判定失败
                                         if metadata.len() == 0 {
-                                            log_error!("[{}] 文件大小为0，确认下载失败", task_id_clone);
-                                            let _ = tx.send(Err("下载失败：获取状态失败且文件大小为0".to_string()));
+                                            log_error!(
+                                                "[{}] 文件大小为0，确认下载失败",
+                                                task_id_clone
+                                            );
+                                            let _ = tx
+                                                .send(Err("下载失败：获取状态失败且文件大小为0"
+                                                    .to_string()));
                                             return;
                                         }
                                     }
@@ -1897,7 +1954,7 @@ pub async fn download_via_aria2(
             if final_file_size > 0 {
                 // 尝试进行文件魔数检查，判断下载是否有效
                 let is_file_valid = check_file_magic_number(&file_path_clone);
-                
+
                 if is_file_valid {
                     // 发送下载完成事件到main窗口，表示文件已下载完成
                     let emit_result = app_handle_for_events.emit_to(
@@ -1912,11 +1969,14 @@ pub async fn download_via_aria2(
                         }),
                     );
 
-                if let Err(e) = emit_result {
+                    if let Err(e) = emit_result {
                         log_error!("[{}] 发送下载完成事件失败: {}", task_id_clone, e);
                     }
                 } else {
-                    log_error!("[{}] 下载完成但文件魔数检查失败，可能是无效文件", task_id_clone);
+                    log_error!(
+                        "[{}] 下载完成但文件魔数检查失败，可能是无效文件",
+                        task_id_clone
+                    );
                     let _ = app_handle_for_events.emit_to(
                         "main",
                         "download-failed",
@@ -2063,7 +2123,7 @@ fn check_file_magic_number(file_path: &PathBuf) -> bool {
     const MAX_RETRIES: u32 = 5;
     // 重试间隔
     const RETRY_INTERVAL: Duration = Duration::from_millis(500);
-    
+
     // 常见压缩文件的魔数
     // ZIP格式
     const ZIP_MAGIC: [u8; 4] = [0x50, 0x4B, 0x03, 0x04];
@@ -2071,7 +2131,7 @@ fn check_file_magic_number(file_path: &PathBuf) -> bool {
     const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
     // 7Z格式
     const SEVENZ_MAGIC: [u8; 6] = [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
-    
+
     for retry in 0..MAX_RETRIES {
         match fs::File::open(file_path) {
             Ok(mut file) => {
@@ -2080,13 +2140,13 @@ fn check_file_magic_number(file_path: &PathBuf) -> bool {
                 match file.read_exact(&mut buffer) {
                     Ok(_) => {
                         // 检查是否匹配任何支持的文件类型魔数
-                        let is_valid = buffer.starts_with(&ZIP_MAGIC) || 
-                                      buffer.starts_with(&GZIP_MAGIC) ||
-                                      buffer.starts_with(&SEVENZ_MAGIC);
-                        
+                        let is_valid = buffer.starts_with(&ZIP_MAGIC)
+                            || buffer.starts_with(&GZIP_MAGIC)
+                            || buffer.starts_with(&SEVENZ_MAGIC);
+
                         // 对于TAR文件，需要额外处理偏移量
                         // 注意：这里简化处理，实际应用中可能需要更复杂的逻辑
-                        
+
                         if is_valid {
                             log_info!("[aria2c] 文件魔数检查通过: {:?}", buffer);
                             return true;
@@ -2095,11 +2155,14 @@ fn check_file_magic_number(file_path: &PathBuf) -> bool {
                             // 即使魔数不匹配，也不立即判定为无效，因为可能是其他格式
                             return true;
                         }
-                    },
+                    }
                     Err(e) => {
-                        log_warn!("[aria2c] 读取文件失败 (尝试 {}): {}, 可能文件太小或仍被锁定", 
-                                 retry + 1, e);
-                        
+                        log_warn!(
+                            "[aria2c] 读取文件失败 (尝试 {}): {}, 可能文件太小或仍被锁定",
+                            retry + 1,
+                            e
+                        );
+
                         // 如果文件太小，无法读取足够字节，也认为是有效的（可能是正常情况）
                         if let Ok(metadata) = fs::metadata(file_path) {
                             if metadata.len() < buffer.len() as u64 {
@@ -2109,19 +2172,22 @@ fn check_file_magic_number(file_path: &PathBuf) -> bool {
                         }
                     }
                 }
-            },
+            }
             Err(e) => {
-                log_warn!("[aria2c] 打开文件失败 (尝试 {}): {}, 可能文件仍被锁定", 
-                         retry + 1, e);
+                log_warn!(
+                    "[aria2c] 打开文件失败 (尝试 {}): {}, 可能文件仍被锁定",
+                    retry + 1,
+                    e
+                );
             }
         }
-        
+
         // 如果不是最后一次尝试，等待一段时间后重试
         if retry < MAX_RETRIES - 1 {
             std::thread::sleep(RETRY_INTERVAL);
         }
     }
-    
+
     // 多次尝试后仍然失败，可能是文件被锁定或其他问题
     // 但考虑到aria2的特性，我们不能仅仅因为无法读取魔数就判定失败
     // 返回true表示继续处理文件
