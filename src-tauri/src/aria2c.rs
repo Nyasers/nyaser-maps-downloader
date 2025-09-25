@@ -772,38 +772,6 @@ async fn get_download_status(
     Ok(None)
 }
 
-// 检查任务是否存在于aria2c中
-async fn check_task_exists(manager: &Aria2RpcManager, gid: &str, _rt: &Runtime) -> bool {
-    log_debug!("检查任务是否存在: {}", gid);
-
-    let request = Aria2JsonRpcRequest {
-        jsonrpc: "2.0".to_string(),
-        method: "aria2.tellStatus".to_string(),
-        params: vec![
-            serde_json::Value::String(format!("token:{}", manager.secret)),
-            serde_json::Value::String(gid.to_string()),
-        ],
-        id: 1,
-    };
-
-    match send_rpc_request_async(manager, &request).await {
-        Ok(response) => {
-            // 检查响应是否包含错误
-            if response.contains("error") {
-                log_debug!("任务不存在或已完成: {}", gid);
-                false
-            } else {
-                log_debug!("任务存在: {}", gid);
-                true
-            }
-        }
-        Err(e) => {
-            log_error!("检查任务存在性失败: {}", e);
-            false
-        }
-    }
-}
-
 // 检查进程是否正在运行
 fn is_process_running(pid: u32) -> bool {
     // 检查进程是否存在
