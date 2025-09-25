@@ -17,7 +17,7 @@ lazy_static! {
     // 表示应用是否正在关闭
     static ref APP_SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
     // 全局应用句柄，用于在清理资源时关闭窗口
-    static ref GLOBAL_APP_HANDLE: std::sync::Arc<std::sync::RwLock<Option<tauri::AppHandle>>> =
+    pub static ref GLOBAL_APP_HANDLE: std::sync::Arc<std::sync::RwLock<Option<tauri::AppHandle>>> =
         std::sync::Arc::new(std::sync::RwLock::new(None));
 }
 

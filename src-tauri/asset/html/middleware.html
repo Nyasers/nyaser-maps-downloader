@@ -1461,6 +1461,80 @@
           isDownloadLink,
           setupLinkInterceptor
         };
+
+        // 通知后端页面已加载完成
+        async function notifyLoaded() {
+          try {
+            if (window.__TAURI__) {
+              await window.__TAURI__.core.invoke('frontend_loaded');
+              console.log('Nyaser Maps Downloader: 已通知后端前端加载完成');
+            }
+          } catch (error) {
+            console.error('Nyaser Maps Downloader: 通知后端前端加载完成失败:', error);
+          }
+        }
+
+        // 添加加载完成指示器
+        function addLoadedIndicator() {
+          // 创建加载完成指示器元素
+          const loadedIndicator = document.createElement('div');
+          loadedIndicator.id = 'nmd-loaded-indicator';
+          loadedIndicator.style.position = 'fixed';
+          loadedIndicator.style.bottom = '20px';
+          loadedIndicator.style.right = '20px';
+          loadedIndicator.style.padding = '8px 16px';
+          loadedIndicator.style.background = 'rgba(76, 175, 80, 0.9)';
+          loadedIndicator.style.color = 'white';
+          loadedIndicator.style.borderRadius = '4px';
+          loadedIndicator.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.2)';
+          loadedIndicator.style.fontSize = '14px';
+          loadedIndicator.style.zIndex = '9999';
+          loadedIndicator.style.opacity = '0';
+          loadedIndicator.style.transition = 'opacity 0.3s ease';
+          loadedIndicator.textContent = '页面加载完成';
+          loadedIndicator.title = '点击可隐藏';
+          loadedIndicator.style.cursor = 'pointer';
+          loadedIndicator.style.display = 'none';
+
+          // 添加点击隐藏事件
+          loadedIndicator.addEventListener('click', () => {
+            loadedIndicator.style.opacity = '0';
+            setTimeout(() => {
+              loadedIndicator.style.display = 'none';
+            }, 300);
+          });
+
+          // 添加到页面
+          document.body.appendChild(loadedIndicator);
+
+          // 显示指示器
+          setTimeout(() => {
+            loadedIndicator.style.display = 'block';
+            setTimeout(() => {
+              loadedIndicator.style.opacity = '1';
+              // 5秒后自动隐藏
+              setTimeout(() => {
+                loadedIndicator.style.opacity = '0';
+                setTimeout(() => {
+                  loadedIndicator.style.display = 'none';
+                }, 300);
+              }, 5000);
+            }, 100);
+          }, 100);
+        }
+
+        // 当所有资源加载完成后执行
+        function onAllResourcesLoaded() {
+          notifyLoaded();
+          addLoadedIndicator();
+        }
+
+        // 检测文档加载状态
+        if (document.readyState === 'complete') {
+          onAllResourcesLoaded();
+        } else {
+          window.addEventListener('load', onAllResourcesLoaded);
+        }
       });
 
     } catch (error) {

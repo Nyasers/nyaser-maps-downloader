@@ -40,7 +40,8 @@ pub fn run() {
             commands::delete_nmd_file,
             commands::cancel_download,
             commands::refresh_download_queue,
-            commands::cancel_all_downloads
+            commands::cancel_all_downloads,
+            commands::frontend_loaded,
         ])
         // 添加应用启动时的初始化逻辑
         .setup(|app| Ok(init::initialize_app(app)?))

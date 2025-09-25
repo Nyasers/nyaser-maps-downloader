@@ -9,14 +9,13 @@ use std::{
 
 // 第三方库导入
 use serde_json;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::MessageDialogKind;
 
 // 内部模块导入
 use crate::{
     aria2c::download_via_aria2,
     dialog_manager::show_dialog,
-    dir_manager::get_global_temp_dir,
     extract_manager::{start_extract_queue_manager, ExtractTask},
     init::is_app_shutting_down,
     log_debug, log_error, log_info, log_warn,
@@ -38,8 +37,16 @@ pub struct DownloadTask {
 
 // 创建全局下载队列实例 - 使用lazy_static实现延迟初始化
 lazy_static::lazy_static! {
-    pub static ref DOWNLOAD_QUEUE: Arc<Mutex<TaskQueue<DownloadTask>>> = Arc::new(Mutex::new(TaskQueue::new(1)));
-    pub static ref DOWNLOAD_MANAGER: QueueManager<DownloadTask> = QueueManager::new(1);
+    pub static ref DOWNLOAD_QUEUE: Arc<Mutex<TaskQueue<DownloadTask>>> =
+        Arc::new(Mutex::new(TaskQueue::new(1)));
+
+    // 创建全局下载队列管理器 - 使用QueueManager包装TaskQueue
+    pub static ref DOWNLOAD_MANAGER: QueueManager<DownloadTask> =
+        QueueManager::new(1);
+
+    // 添加全局HashMap来跟踪完整的活跃任务信息
+    pub static ref ACTIVE_DOWNLOAD_TASKS: Arc<Mutex<std::collections::HashMap<String, DownloadTask>>> =
+        Arc::new(Mutex::new(std::collections::HashMap::new()));
 }
 
 /// 启动下载队列管理器 - 使用通用队列管理功能处理下载任务
@@ -65,6 +72,20 @@ pub fn start_download_queue_manager(app_handle: AppHandle) {
             filename,
             url
         );
+
+        // 将任务添加到全局活跃任务集合中
+        {
+            let mut active_tasks = (&*ACTIVE_DOWNLOAD_TASKS)
+                .lock()
+                .map_err(|e| format!("无法获取活跃任务锁: {:?}", e))
+                .expect("获取活跃任务锁失败");
+            active_tasks.insert(task_id.clone(), task.clone());
+            log_debug!(
+                "下载任务 [{}] 添加到活跃任务集合，当前活跃任务数: {}",
+                task_id,
+                active_tasks.len()
+            );
+        }
 
         let app_clone = app_handle_clone.clone();
         let task_clone = task.clone();
@@ -153,6 +174,17 @@ pub fn start_download_queue_manager(app_handle: AppHandle) {
                         queue.active_tasks.len()
                     );
                 }
+                // 同时从全局活跃任务HashMap中移除
+                let mut active_tasks = (&*ACTIVE_DOWNLOAD_TASKS)
+                    .lock()
+                    .map_err(|e| format!("无法获取活跃任务锁: {:?}", e))
+                    .expect("获取活跃任务锁失败");
+                active_tasks.remove(&task_id);
+                log_debug!(
+                    "下载任务 [{}] 从全局活跃任务HashMap中移除，当前活跃任务数: {}",
+                    task_id,
+                    active_tasks.len()
+                );
             }
         });
     };
@@ -192,6 +224,20 @@ pub async fn process_download_queue(app_handle: AppHandle) {
             filename,
             url
         );
+
+        // 将任务添加到全局活跃任务集合中
+        {
+            let mut active_tasks = (&*ACTIVE_DOWNLOAD_TASKS)
+                .lock()
+                .map_err(|e| format!("无法获取活跃任务锁: {:?}", e))
+                .expect("获取活跃任务锁失败");
+            active_tasks.insert(task_id.clone(), task.clone());
+            log_debug!(
+                "下载任务 [{}] 添加到活跃任务集合，当前活跃任务数: {}",
+                task_id,
+                active_tasks.len()
+            );
+        }
 
         let app_clone = app_handle.clone();
         let task_clone = task.clone();
@@ -278,6 +324,18 @@ pub async fn process_download_queue(app_handle: AppHandle) {
                     task_id,
                     queue.active_tasks.len()
                 );
+
+                // 同时从全局活跃任务HashMap中移除
+                let mut active_tasks = (&*ACTIVE_DOWNLOAD_TASKS)
+                    .lock()
+                    .map_err(|e| format!("无法获取活跃任务锁: {:?}", e))
+                    .expect("获取活跃任务锁失败");
+                active_tasks.remove(&task_id);
+                log_debug!(
+                    "下载任务 [{}] 从全局活跃任务HashMap中移除，当前活跃任务数: {}",
+                    task_id,
+                    active_tasks.len()
+                );
             }
 
             // 发送队列更新事件，确保前端正确更新队列显示
@@ -331,13 +389,31 @@ pub async fn process_download_queue(app_handle: AppHandle) {
 ///
 /// 返回下载队列配置文件的完整路径
 pub fn get_download_queue_file_path() -> Result<PathBuf, String> {
-    let temp_dir = get_global_temp_dir()?;
-    Ok(temp_dir.join("download_queue.json"))
+    // 从全局应用句柄获取AppHandle实例
+    let binding = crate::init::GLOBAL_APP_HANDLE
+        .read()
+        .map_err(|e| format!("无法获取应用句柄: {:?}", e))?;
+    let app_handle = match &*binding {
+        Some(handle) => handle,
+        None => return Err("全局应用句柄未初始化".to_string()),
+    };
+
+    // 使用AppHandle获取应用本地数据目录
+    let app_data_dir = match app_handle.path().app_local_data_dir() {
+        Ok(it) => it,
+        Err(err) => return Err(format!("无法获取应用数据目录: {:?}", err)),
+    };
+
+    // 确保应用数据目录存在
+    std::fs::create_dir_all(&app_data_dir).map_err(|e| format!("无法创建应用数据目录: {:?}", e))?;
+
+    // 返回下载队列文件路径
+    Ok(app_data_dir.join("download_queue.json"))
 }
 
 /// 保存下载队列到文件
 ///
-/// 此函数将当前下载队列中的等待任务保存到文件，以便应用重启后能够恢复
+/// 此函数将当前下载队列中的活跃任务和等待任务保存到文件，以便应用重启后能够恢复
 pub fn save_download_queue() -> Result<(), String> {
     log_info!("开始保存下载队列...");
 
@@ -352,8 +428,29 @@ pub fn save_download_queue() -> Result<(), String> {
         queue.queue.clone()
     };
 
-    // 如果没有等待任务，则不创建配置文件
-    if waiting_tasks.is_empty() {
+    // 获取完整的活跃任务信息
+    let active_tasks = {
+        let tasks = ACTIVE_DOWNLOAD_TASKS
+            .lock()
+            .map_err(|e| format!("无法获取活跃下载任务锁: {:?}", e))?;
+        tasks.values().cloned().collect::<Vec<_>>()
+    };
+
+    // 创建一个包含所有任务的统一数组，active任务放在前面
+    let mut tasks = Vec::new();
+    tasks.extend(active_tasks.clone()); // 先添加活跃任务
+    tasks.extend(waiting_tasks); // 再添加等待任务
+
+    // 创建一个只包含tasks字段的结构体
+    #[derive(serde::Serialize)]
+    struct SavedQueue {
+        tasks: Vec<DownloadTask>,
+    }
+
+    let saved_queue = SavedQueue { tasks };
+
+    // 如果没有任务，则不创建配置文件
+    if saved_queue.tasks.is_empty() {
         // 如果配置文件存在，则删除它
         if queue_file_path.exists() {
             if let Err(e) = fs::remove_file(&queue_file_path) {
@@ -364,8 +461,8 @@ pub fn save_download_queue() -> Result<(), String> {
         return Ok(());
     }
 
-    // 将等待任务序列化为JSON
-    let json_data = serde_json::to_string_pretty(&waiting_tasks)
+    // 将队列数据序列化为JSON
+    let json_data = serde_json::to_string_pretty(&saved_queue)
         .map_err(|e| format!("无法序列化下载队列: {:?}", e))?;
 
     // 写入文件
@@ -373,8 +470,10 @@ pub fn save_download_queue() -> Result<(), String> {
         .map_err(|e| format!("无法写入下载队列配置文件: {:?}", e))?;
 
     log_info!(
-        "下载队列已成功保存到: {}",
-        queue_file_path.to_string_lossy()
+        "下载队列已成功保存到: {}, 总任务数: {}, 活跃任务数: {}",
+        queue_file_path.to_string_lossy(),
+        saved_queue.tasks.len(),
+        active_tasks.len()
     );
     Ok(())
 }
@@ -398,25 +497,65 @@ pub fn load_download_queue() -> Result<(), String> {
     let json_data = fs::read_to_string(&queue_file_path)
         .map_err(|e| format!("无法读取下载队列配置文件: {:?}", e))?;
 
-    // 反序列化为等待任务列表
-    let waiting_tasks: Vec<DownloadTask> =
+    // 定义队列结构 - 只包含一个tasks字段
+    #[derive(serde::Deserialize)]
+    struct SavedQueue {
+        tasks: Vec<DownloadTask>,
+    }
+
+    // 反序列化为新格式，不支持旧格式
+    let saved_queue: SavedQueue =
         serde_json::from_str(&json_data).map_err(|e| format!("无法反序列化下载队列: {:?}", e))?;
 
+    log_info!("成功加载下载队列: 总任务数={}", saved_queue.tasks.len());
+
     // 将任务添加到下载队列
-    if !waiting_tasks.is_empty() {
+    if !saved_queue.tasks.is_empty() {
         let mut queue = DOWNLOAD_QUEUE
             .lock()
             .map_err(|e| format!("无法获取下载队列锁: {:?}", e))?;
 
-        for task in waiting_tasks {
+        // 添加所有任务
+        for task in saved_queue.tasks {
             queue.add_task(task);
         }
 
-        log_info!("成功加载 {} 个下载任务到队列", queue.queue.len());
+        let loaded_tasks_count = queue.queue.len();
+
+        log_info!(
+            "成功加载下载队列: 等待任务数={}, 总计需要重新下载的任务数={}",
+            loaded_tasks_count,
+            loaded_tasks_count
+        );
     } else {
         log_info!("加载的下载队列为空");
     }
 
+    Ok(())
+}
+
+/// 处理下载队列 - 启动下载任务处理线程
+///
+/// 此函数会在后台线程中启动一个异步任务，用于处理下载队列中的任务。
+/// 它会先更新下载队列状态，然后开始处理队列中的任务。
+pub fn process_download() -> Result<(), String> {
+    // 从全局应用句柄获取AppHandle实例
+    let binding = crate::init::GLOBAL_APP_HANDLE
+        .read()
+        .map_err(|e| format!("无法获取应用句柄: {:?}", e))?;
+    let app_handle = match &*binding {
+        Some(handle) => handle,
+        None => return Err("全局应用句柄未初始化".into()),
+    };
+
+    let app_clone = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        update_download_queue_status(&app_clone);
+        tauri::async_runtime::spawn(async move {
+            log_debug!("下载队列处理线程已创建，准备开始处理队列");
+            process_download_queue(app_clone).await;
+        });
+    });
     Ok(())
 }
 

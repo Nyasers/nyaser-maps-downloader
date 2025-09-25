@@ -20,7 +20,7 @@ pub struct TaskQueue<T> {
     pub processing_started: bool,
     /// 最大并行任务数
     pub max_concurrent_tasks: u32,
-    /// 当前活跃任务的集合（存储任务ID）
+    /// 当前活跃任务的ID集合
     pub active_tasks: HashSet<String>,
 }
 

@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::{
     dialog_manager::show_dialog,
     dir_manager::DIR_MANAGER,
-    download_manager::{process_download_queue, DownloadTask, DOWNLOAD_QUEUE},
+    download_manager::{process_download, process_download_queue, DownloadTask, DOWNLOAD_QUEUE},
     log_debug, log_error, log_info, log_warn,
 };
 
@@ -548,7 +548,7 @@ pub async fn install(url: &str, app_handle: AppHandle) -> Result<String, String>
     log_debug!("尝试锁定下载队列并添加任务...");
     {
         let mut queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
-        queue.queue.push_back(task);
+        queue.add_task(task);
         log_info!("任务已添加到下载队列，当前队列长度: {}", queue.queue.len());
     }
 
@@ -819,4 +819,16 @@ pub async fn cancel_all_downloads(app_handle: AppHandle) -> Result<String, Strin
         "已成功取消所有排队任务，共取消 {} 个任务，保留 {} 个正在下载的任务",
         queue_tasks_count, active_tasks_count
     ))
+}
+
+/// 前端加载完成通知命令
+///
+/// 由前端调用，通知后端下载拦截器已成功加载完成
+#[tauri::command]
+pub fn frontend_loaded() -> Result<String, String> {
+    log_info!("接收到前端加载完成通知");
+
+    process_download().map_err(|e| e.to_string())?;
+
+    Ok("前端加载完成通知已收到".into())
 }
