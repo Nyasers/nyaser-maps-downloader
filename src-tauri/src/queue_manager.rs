@@ -87,6 +87,11 @@ impl<T> TaskQueue<T> {
     pub fn len(&self) -> (usize, usize) {
         (self.queue.len(), self.active_tasks.len())
     }
+
+    /// 通过ID查找等待队列中的任务
+    pub fn find_task_by_id(&self, task_id: &str, get_id_fn: impl Fn(&T) -> String) -> Option<&T> {
+        self.queue.iter().find(|task| get_id_fn(task) == task_id)
+    }
 }
 
 /// 处理队列的通用函数

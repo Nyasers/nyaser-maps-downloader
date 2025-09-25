@@ -38,8 +38,9 @@ use crate::{
     dir_manager::{
         cleanup_temp_dir, get_global_temp_dir, get_l4d2_addons_dir, set_global_extract_dir,
     },
+    download_manager,
     extract_manager::initialize_7z_resources,
-    log_info,
+    log_error, log_info, log_warn,
 };
 
 /// 将窗口在屏幕上居中
@@ -132,7 +133,13 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
                 "初始化失败",
             );
         }
-        Ok(()) => {}
+        Ok(()) => {
+            // 尝试加载之前保存的下载队列
+            if let Err(e) = download_manager::load_download_queue() {
+                eprintln!("加载下载队列失败: {}", e);
+                log_warn!("加载下载队列失败: {}", e);
+            }
+        }
     }
 
     // 初始化7z资源（与aria2c一样，在应用启动时释放）
@@ -197,27 +204,40 @@ pub fn cleanup_app_resources() {
     log_info!("应用开始关闭，设置关闭标志...");
     set_app_shutting_down(true);
 
+    // 尝试获取全局应用句柄
+    if let Some(app_handle) = &*GLOBAL_APP_HANDLE.read().unwrap() {
+        log_info!("正在关闭所有窗口...");
+
+        // 关闭所有窗口
+        for (label, window) in app_handle.webview_windows() {
+            log_info!("关闭窗口: {:?}", label);
+            let _ = window.destroy();
+        }
+    }
+
+    // 保存下载队列
+    if let Err(e) = download_manager::save_download_queue() {
+        log_error!("保存下载队列失败: {}", e);
+    }
+
     // 清理aria2c资源
     cleanup_aria2c_resources();
     // 清理临时目录
     cleanup_temp_dir();
 
-    // 尝试获取全局应用句柄
-    if let Some(app_handle) = &*GLOBAL_APP_HANDLE.read().unwrap() {
-        log_info!("正在关闭所有窗口...");
-
-        // 关闭文件管理器窗口
-        if let Some(file_manager_window) = app_handle.get_webview_window("file_manager") {
-            log_info!("关闭文件管理器窗口...");
-            let _ = file_manager_window.close();
-        }
-
-        // 关闭主窗口
-        if let Some(main_window) = app_handle.get_webview_window("main") {
-            log_info!("关闭主窗口...");
-            let _ = main_window.close();
-        }
-    }
-
     log_info!("资源清理完成，进程即将退出...");
+
+    // 尝试获取全局应用句柄用于后续的正常退出操作
+    let app_exit_closure = || {
+        if let Some(app_handle) = &*GLOBAL_APP_HANDLE.read().unwrap() {
+            log_info!("请求应用正常退出...");
+            // 使用Tauri的app.exit()方法进行正常退出
+            let _ = app_handle.exit(0);
+        } else {
+            log_warn!("请求应用强制退出...");
+            exit(1);
+        }
+    };
+
+    app_exit_closure();
 }

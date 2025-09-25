@@ -1,7 +1,11 @@
 // download_manager.rs 模块 - 负责管理地图文件的下载队列和下载过程
 
 // 标准库导入
-use std::sync::{Arc, Mutex};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 // 第三方库导入
 use serde_json;
@@ -12,6 +16,7 @@ use tauri_plugin_dialog::MessageDialogKind;
 use crate::{
     aria2c::download_via_aria2,
     dialog_manager::show_dialog,
+    dir_manager::get_global_temp_dir,
     extract_manager::{start_extract_queue_manager, ExtractTask},
     init::is_app_shutting_down,
     log_debug, log_error, log_info, log_warn,
@@ -19,7 +24,7 @@ use crate::{
 };
 
 /// 下载任务结构体 - 表示一个地图下载任务的基本信息
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DownloadTask {
     /// 任务唯一标识符
     pub id: String,
@@ -322,6 +327,99 @@ pub async fn process_download_queue(app_handle: AppHandle) {
     .await;
 }
 
+/// 获取下载队列配置文件路径
+///
+/// 返回下载队列配置文件的完整路径
+pub fn get_download_queue_file_path() -> Result<PathBuf, String> {
+    let temp_dir = get_global_temp_dir()?;
+    Ok(temp_dir.join("download_queue.json"))
+}
+
+/// 保存下载队列到文件
+///
+/// 此函数将当前下载队列中的等待任务保存到文件，以便应用重启后能够恢复
+pub fn save_download_queue() -> Result<(), String> {
+    log_info!("开始保存下载队列...");
+
+    // 获取队列配置文件路径
+    let queue_file_path = get_download_queue_file_path()?;
+
+    // 获取下载队列的等待任务
+    let waiting_tasks = {
+        let queue = DOWNLOAD_QUEUE
+            .lock()
+            .map_err(|e| format!("无法获取下载队列锁: {:?}", e))?;
+        queue.queue.clone()
+    };
+
+    // 如果没有等待任务，则不创建配置文件
+    if waiting_tasks.is_empty() {
+        // 如果配置文件存在，则删除它
+        if queue_file_path.exists() {
+            if let Err(e) = fs::remove_file(&queue_file_path) {
+                log_warn!("无法删除空的下载队列配置文件: {:?}", e);
+            }
+        }
+        log_info!("下载队列为空，无需保存");
+        return Ok(());
+    }
+
+    // 将等待任务序列化为JSON
+    let json_data = serde_json::to_string_pretty(&waiting_tasks)
+        .map_err(|e| format!("无法序列化下载队列: {:?}", e))?;
+
+    // 写入文件
+    fs::write(&queue_file_path, json_data)
+        .map_err(|e| format!("无法写入下载队列配置文件: {:?}", e))?;
+
+    log_info!(
+        "下载队列已成功保存到: {}",
+        queue_file_path.to_string_lossy()
+    );
+    Ok(())
+}
+
+/// 从文件加载下载队列
+///
+/// 此函数在应用启动时调用，尝试从文件恢复之前的下载队列
+pub fn load_download_queue() -> Result<(), String> {
+    log_info!("开始加载下载队列...");
+
+    // 获取队列配置文件路径
+    let queue_file_path = get_download_queue_file_path()?;
+
+    // 检查配置文件是否存在
+    if !queue_file_path.exists() {
+        log_info!("下载队列配置文件不存在，无需加载");
+        return Ok(());
+    }
+
+    // 读取配置文件
+    let json_data = fs::read_to_string(&queue_file_path)
+        .map_err(|e| format!("无法读取下载队列配置文件: {:?}", e))?;
+
+    // 反序列化为等待任务列表
+    let waiting_tasks: Vec<DownloadTask> =
+        serde_json::from_str(&json_data).map_err(|e| format!("无法反序列化下载队列: {:?}", e))?;
+
+    // 将任务添加到下载队列
+    if !waiting_tasks.is_empty() {
+        let mut queue = DOWNLOAD_QUEUE
+            .lock()
+            .map_err(|e| format!("无法获取下载队列锁: {:?}", e))?;
+
+        for task in waiting_tasks {
+            queue.add_task(task);
+        }
+
+        log_info!("成功加载 {} 个下载任务到队列", queue.queue.len());
+    } else {
+        log_info!("加载的下载队列为空");
+    }
+
+    Ok(())
+}
+
 /// 更新下载队列状态 - 获取当前队列状态并向前端发送更新
 ///
 /// 此函数会获取当前下载队列的状态（等待任务、总任务数和活跃任务数），
@@ -403,12 +501,7 @@ pub async fn download_and_extract(
             // 检查是否是用户取消下载
             if err != "用户取消下载" {
                 // 只对真正的错误显示对话框
-                show_dialog(
-                    &app_handle,
-                    &err,
-                    MessageDialogKind::Error,
-                    "下载失败",
-                );
+                show_dialog(&app_handle, &err, MessageDialogKind::Error, "下载失败");
             }
             return Err(err);
         }

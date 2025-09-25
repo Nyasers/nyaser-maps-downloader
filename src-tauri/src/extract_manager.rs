@@ -10,9 +10,9 @@ use tauri_plugin_dialog::MessageDialogKind;
 
 // 内部模块导入
 use crate::{
-    dialog_manager::show_dialog, dir_manager::get_global_temp_dir, init::is_app_shutting_down,
-    log_debug, log_error, log_info, log_utils::redirect_process_output, log_warn,
-    queue_manager::QueueManager,
+    dialog_manager::show_dialog, dir_manager::get_global_temp_dir,
+    download_manager::DOWNLOAD_QUEUE, init::is_app_shutting_down, log_debug, log_error, log_info,
+    log_utils::redirect_process_output, log_warn, queue_manager::QueueManager,
 };
 
 /// 解压任务结构体 - 表示一个文件解压任务
@@ -33,6 +33,35 @@ pub struct ExtractTask {
 // 创建全局解压队列管理器实例
 lazy_static::lazy_static! {
     pub static ref EXTRACT_MANAGER: QueueManager<ExtractTask> = QueueManager::new(1);
+}
+
+/// 通过ID查找下载任务
+///
+/// 在下载队列中查找指定ID的下载任务
+///
+/// # 参数
+/// - `task_id`: 要查找的下载任务ID
+///
+/// # 返回值
+/// - 成功时返回`Ok(Some(DownloadTask))`表示找到任务
+/// - 成功时返回`Ok(None)`表示未找到任务
+/// - 失败时返回包含错误信息的`Err`
+pub fn find_download_task_by_id(
+    task_id: &str,
+) -> Result<Option<crate::download_manager::DownloadTask>, String> {
+    // 获取下载队列的锁
+    let queue = DOWNLOAD_QUEUE
+        .lock()
+        .map_err(|e| format!("无法获取下载队列锁: {:?}", e))?;
+
+    // 使用之前添加的find_task_by_id方法查找任务
+    if let Some(task) = queue.find_task_by_id(task_id, |t| t.id.clone()) {
+        // 找到任务，返回克隆的任务对象
+        Ok(Some(task.clone()))
+    } else {
+        // 未找到任务
+        Ok(None)
+    }
 }
 
 /// 启动解压队列管理器 - 使用通用队列管理功能处理解压任务
@@ -86,6 +115,12 @@ pub fn start_extract_queue_manager() {
                     let mut wait_count = 0;
                     let start_time = std::time::Instant::now();
 
+                    // 在循环外部创建必要的克隆
+                    let aria2_file_path_str = aria2_file_path.to_string_lossy().to_string();
+                    let app_handle_clone = task.app_handle.clone();
+                    let extract_task_id_clone = extract_task_id.clone();
+                    let download_task_id_clone = task.download_task_id.clone();
+
                     while aria2_file_path.exists() {
                         wait_count += 1;
 
@@ -93,11 +128,107 @@ pub fn start_extract_queue_manager() {
                         let elapsed = start_time.elapsed().as_secs();
                         if elapsed > max_wait_seconds {
                             log_warn!(
-                                "解压任务 [{}]: 等待.aria2文件超时 ({}/{})秒，继续执行解压",
+                                "解压任务 [{}]: 等待.aria2文件超时 ({}/{})秒",
                                 extract_task_id,
                                 elapsed,
                                 max_wait_seconds
                             );
+
+                            // 尝试查找相关的下载任务，实现继续下载功能
+                            log_info!(
+                                "解压任务 [{}]: 尝试继续下载任务 [{}]",
+                                extract_task_id,
+                                download_task_id_clone
+                            );
+
+                            // 使用之前添加的find_task_by_id方法查找下载任务
+                            if let Ok(Some(download_task)) =
+                                find_download_task_by_id(&download_task_id_clone)
+                            {
+                                log_info!(
+                                    "找到下载任务 [{}]，开始继续下载",
+                                    download_task_id_clone
+                                );
+
+                                // 创建新的线程来继续下载任务
+                                // 克隆task.file_path以避免所有权问题
+                                let task_file_path_clone = task.file_path.clone();
+                                std::thread::spawn(move || {
+                                    // 从全局ARIA2_RPC_MANAGER获取实例
+                                    let result = {
+                                        if let Ok(mut manager_guard) =
+                                            crate::aria2c::ARIA2_RPC_MANAGER.lock()
+                                        {
+                                            if let Some(manager) = &mut *manager_guard {
+                                                // 从文件路径中提取文件名
+                                                // 使用let绑定创建持久的PathBuf
+                                                let path_buf = PathBuf::from(&aria2_file_path_str);
+                                                let filename = path_buf
+                                                    .file_stem()
+                                                    .and_then(|os_str| os_str.to_str())
+                                                    .unwrap_or("未知文件");
+
+                                                // 调用add_download_sync方法
+                                                manager.add_download_sync(
+                                                    &download_task.url,
+                                                    &std::path::Path::new(&aria2_file_path_str)
+                                                        .parent()
+                                                        .map(|p| p.to_string_lossy().to_string())
+                                                        .unwrap_or("\\".to_string()),
+                                                    filename,
+                                                )
+                                            } else {
+                                                Err("ARIA2 RPC管理器未初始化".to_string())
+                                            }
+                                        } else {
+                                            Err("无法获取ARIA2 RPC管理器锁".to_string())
+                                        }
+                                    };
+
+                                    match result {
+                                        Ok(gid) => {
+                                            log_info!(
+                                                "解压任务 [{}]: 成功继续下载任务 [{}]，新的GID: {}",
+                                                extract_task_id_clone,
+                                                download_task_id_clone,
+                                                gid
+                                            );
+                                            // 发送继续下载成功事件
+                                            let _ = app_handle_clone.emit_to(
+                                                    "main",
+                                                    "download-resumed",
+                                                    &serde_json::json!(
+                                                        {
+                                                            "taskId": download_task_id_clone,
+                                                            "filename": PathBuf::from(&task_file_path_clone)
+                                                                .file_name()
+                                                                .and_then(|os_str| os_str.to_str())
+                                                                .unwrap_or("未知文件"),
+                                                            "message": "成功继续下载任务"
+                                                        }
+                                                    ),
+                                                );
+                                        }
+                                        Err(e) => {
+                                            log_error!(
+                                                "解压任务 [{}]: 继续下载任务 [{}] 失败: {}",
+                                                extract_task_id_clone,
+                                                download_task_id_clone,
+                                                e
+                                            );
+                                        }
+                                    }
+                                });
+                            } else {
+                                log_warn!(
+                                    "解压任务 [{}]: 未找到对应的下载任务 [{}]",
+                                    extract_task_id,
+                                    download_task_id_clone
+                                );
+                            }
+
+                            // 继续解压流程
+                            log_warn!("解压任务 [{}]: 继续解压流程", extract_task_id);
                             break;
                         }
 
@@ -671,7 +802,7 @@ fn rename_and_move_extracted_files(
 
                 // 已经以$nmd_开头的文件不再重复添加前缀
                 if filename.starts_with("$nmd_") {
-                    log_debug!("文件已经包含前缀，跳过: {}", filename);
+                    log_debug!("文件已经包含前缀,跳过: {}", filename);
                     // 直接移动到目标目录
                     let target_path = target_dir.join(filename);
                     if let Err(e) = std::fs::rename(&original_path, &target_path) {
@@ -714,6 +845,6 @@ fn rename_and_move_extracted_files(
         }
     }
 
-    log_info!("解压文件重命名和移动完成，共处理 {} 个文件", renamed_count);
+    log_info!("解压文件重命名和移动完成,共处理 {}个文件", renamed_count);
     Ok(renamed_count)
 }

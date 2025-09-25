@@ -55,8 +55,8 @@ lazy_static! {
 
     // 存储aria2c初始化完成前的待处理下载任务
     static ref PENDING_TASKS_MANAGER: QueueManager<PendingTask> = QueueManager::new(5);
-    // RPC服务器管理单例
-    static ref ARIA2_RPC_MANAGER: Mutex<Option<Aria2RpcManager>> = Mutex::new(None);
+    // RPC服务器管理单例 - 全局可访问
+    pub static ref ARIA2_RPC_MANAGER: Mutex<Option<Aria2RpcManager>> = Mutex::new(None);
     // 保存上次成功启动的aria2c信息（端口、密钥、PID）
     static ref LAST_ARIA2_INFO: Mutex<Option<(u16, String, u32)>> = Mutex::new(None);
 
@@ -73,6 +73,46 @@ struct DownloadStatus {
     completed_length: u64,
     total_length: u64,
     download_speed: u64,
+}
+
+// 辅助函数：尝试在指定时间内获取锁，如果超时则返回None
+// 用于防止在应用关闭时因锁获取失败导致的无限阻塞
+fn try_lock_with_timeout<T>(
+    mutex: &Mutex<T>,
+    timeout_ms: u64,
+) -> Option<std::sync::MutexGuard<'_, T>> {
+    let start_time = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+    let check_interval = std::time::Duration::from_millis(10);
+
+    loop {
+        // 检查应用是否正在关闭，如果是则不再等待锁
+        if is_app_shutting_down() {
+            log_debug!("应用正在关闭，跳过锁获取");
+            return None;
+        }
+
+        // 尝试获取锁
+        match mutex.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                // 检查是否超时
+                if start_time.elapsed() >= timeout {
+                    log_warn!("获取锁超时: {}ms", timeout_ms);
+                    return None;
+                }
+                // 等待一小段时间后重试
+                std::thread::sleep(check_interval);
+            }
+            Err(std::sync::TryLockError::Poisoned(e)) => {
+                log_error!("锁已中毒: {:?}", e);
+                // TryLockError::Poisoned的into_inner()方法直接返回MutexGuard
+                let guard = e.into_inner();
+                log_info!("尝试恢复中毒的锁");
+                return Some(guard);
+            }
+        }
+    }
 }
 
 // RPC请求和响应结构体定义
@@ -152,7 +192,8 @@ impl Aria2RpcManager {
                 let last_url = format!("http://localhost:{}/jsonrpc", last_port);
 
                 // 尝试连接到现有实例
-                if true {
+                // 执行一个简单的RPC ping操作来验证连接是否有效
+                if test_aria2_connection(&last_url, &last_secret) {
                     log_info!("成功复用现有aria2c实例");
 
                     // 创建一个不包含进程句柄的管理器实例，因为进程是外部创建的
@@ -212,7 +253,8 @@ impl Aria2RpcManager {
         {
             log_info!("开始监控aria2c进程: PID={}", self.pid);
 
-            let pid = self.pid;
+            // 将pid声明为可变的，这样我们可以在进程重启后更新它
+            let mut pid = self.pid;
             let _secret = self.secret.clone(); // 保留但标记为未使用
             let _url = self.url.clone(); // 保留但标记为未使用
 
@@ -235,65 +277,66 @@ impl Aria2RpcManager {
                         log_error!("检测到aria2c进程意外关闭: PID={}", pid);
 
                         // 尝试通知全局管理器进行重启
-                        if let Ok(mut manager) = ARIA2_RPC_MANAGER.lock() {
-                            if let Some(current_manager) = manager.as_ref() {
-                                if current_manager.pid == pid {
-                                    log_info!("准备重启aria2c服务");
+                        // 使用带超时的try_lock以避免在关闭时阻塞
+                        match try_lock_with_timeout(&ARIA2_RPC_MANAGER, 1000) {
+                            Some(mut manager) => {
+                                if let Some(current_manager) = manager.as_ref() {
+                                    if current_manager.pid == pid {
+                                        log_info!("准备重启aria2c服务");
 
-                                    // 从上次保存的信息中获取端口和密钥
-                                    if let Some((last_port, last_secret, _)) =
-                                        { (*LAST_ARIA2_INFO.lock().unwrap()).clone() }
-                                    {
-                                        log_info!(
-                                            "尝试使用上次的配置重启aria2c: 端口={}",
-                                            last_port
-                                        );
+                                        // 保留上次保存的信息，以便重用相同的端口和配置
+                                        log_info!("尝试使用相同的配置重启aria2c进程");
 
-                                        match start_aria2c_rpc_server(last_port, &last_secret) {
-                                            Ok(process) => {
-                                                let new_pid = process.id();
-                                                log_info!("aria2c服务重启成功，新PID: {}", new_pid);
+                                        // 尝试使用Aria2RpcManager::new()创建新实例
+                                        // 注意：new()方法会检查LAST_ARIA2_INFO并尝试复用配置
+                                        match Aria2RpcManager::new() {
+                                            Ok(new_manager) => {
+                                                log_info!(
+                                                    "成功创建新的Aria2RpcManager实例，新PID: {}",
+                                                    new_manager.pid
+                                                );
 
-                                                // 更新管理器信息
-                                                *manager = Some(Aria2RpcManager {
-                                                    url: format!(
-                                                        "http://localhost:{}/jsonrpc",
-                                                        last_port
-                                                    ),
-                                                    secret: last_secret.clone(),
-                                                    process: Some(process),
-                                                    pid: new_pid,
-                                                    is_monitored: AtomicBool::new(false),
-                                                });
-
-                                                // 更新上次成功启动的信息
-                                                *LAST_ARIA2_INFO.lock().unwrap() =
-                                                    Some((last_port, last_secret, new_pid));
-
-                                                // 重启监控
-                                                if let Some(new_manager) = manager.as_ref() {
-                                                    new_manager.start_process_monitoring();
-                                                }
+                                                // 替换全局管理器实例
+                                                *manager = Some(new_manager);
                                             }
                                             Err(e) => {
-                                                log_error!("重启aria2c服务失败: {}", e);
+                                                log_error!(
+                                                    "创建新的Aria2RpcManager实例失败: {}",
+                                                    e
+                                                );
                                             }
                                         }
                                     }
                                 }
                             }
+                            None => {
+                                log_warn!("获取RPC管理器锁超时，跳过重启操作");
+                            }
                         }
 
-                        // 结束当前监控线程
-                        break;
+                        // 重新获取当前管理器的PID
+                        // 这样如果进程已重启，我们会开始监控新的PID
+                        match try_lock_with_timeout(&ARIA2_RPC_MANAGER, 1000) {
+                            Some(updated_manager) => {
+                                if let Some(current_manager) = updated_manager.as_ref() {
+                                    // 更新当前线程监控的PID
+                                    pid = current_manager.pid;
+                                    log_info!("更新监控的PID为: {}", pid);
+                                }
+                            }
+                            None => {
+                                log_warn!("获取RPC管理器锁超时，无法更新监控的PID");
+                            }
+                        }
+                        continue;
                     }
                 }
             });
         }
     }
 
-    // 添加下载任务到RPC服务器
-    pub fn add_download(
+    // 添加下载任务到RPC服务器（异步版本）
+    pub async fn add_download(
         &self,
         url: &str,
         save_path: &str,
@@ -329,8 +372,8 @@ impl Aria2RpcManager {
             id: 1,
         };
 
-        // 发送请求并获取响应
-        let response = send_rpc_request(self, &request)?;
+        // 发送请求并获取响应（使用异步版本）
+        let response = send_rpc_request_async(self, &request).await?;
 
         // 解析响应
         let response: Aria2JsonRpcResponse<String> =
@@ -346,6 +389,19 @@ impl Aria2RpcManager {
             log_error!("添加下载任务失败: 未知错误");
             Err("添加下载任务失败: 未知错误".to_string())
         }
+    }
+
+    // 添加下载任务到RPC服务器（同步包装器，供非异步环境使用）
+    pub fn add_download_sync(
+        &self,
+        url: &str,
+        save_path: &str,
+        filename: &str,
+    ) -> Result<String, String> {
+        // 创建一个新的Tokio运行时来执行异步操作，确保在任何线程中都能正常工作
+        let rt =
+            tokio::runtime::Runtime::new().map_err(|e| format!("创建Tokio运行时失败: {}", e))?;
+        rt.block_on(self.add_download(url, save_path, filename))
     }
 
     // 关闭RPC服务器
@@ -397,7 +453,7 @@ fn start_aria2c_rpc_server(port: u16, secret: &str) -> Result<Child, String> {
         .arg(format!("--rpc-secret={}", secret))
         .arg("--rpc-allow-origin-all")
         .arg("--continue=true")
-        .arg("--max-concurrent-downloads=5")
+        .arg("--max-concurrent-downloads=1")
         .arg("--max-connection-per-server=16")
         .arg("--min-split-size=1M")
         .arg("--split=16")
@@ -413,6 +469,9 @@ fn start_aria2c_rpc_server(port: u16, secret: &str) -> Result<Child, String> {
     let mut child = command
         .spawn()
         .map_err(|e| format!("启动aria2c RPC服务器失败: {}", e))?;
+
+    // 等待一小段时间让服务器初始化
+    std::thread::sleep(std::time::Duration::from_millis(200));
 
     // 获取stdout和stderr流
     let stdout = child.stdout.take().ok_or("无法获取stdout流")?;
@@ -436,6 +495,14 @@ fn send_rpc_request_via_powershell(
 ) -> Result<String, String> {
     log_debug!("使用PowerShell发送RPC请求到: {}", manager.url);
     log_debug!("请求内容: {:?}", request);
+
+    // 检查aria2c进程是否存活
+    if !is_process_running(manager.pid) {
+        let error_msg = format!("aria2c进程未运行 (PID: {})，无法发送RPC请求", manager.pid);
+        log_error!("{}", error_msg);
+        return Err(error_msg);
+    }
+    log_debug!("aria2c进程 (PID: {}) 确认存活", manager.pid);
 
     // 将请求序列化为JSON字符串
     let request_json =
@@ -464,6 +531,28 @@ fn send_rpc_request_via_powershell(
 
     // 执行请求，带重试机制
     for attempt in 0..=MAX_RETRIES {
+        // 在每次尝试前检查aria2c进程是否存活
+        if !is_process_running(manager.pid) {
+            let error_msg = format!(
+                "aria2c进程已终止 (PID: {})，无法继续发送RPC请求",
+                manager.pid
+            );
+            log_error!("{}", error_msg);
+
+            // 主动重置全局RPC管理器，以便其他线程能够创建新的实例
+            match try_lock_with_timeout(&ARIA2_RPC_MANAGER, 1000) {
+                Some(mut global_manager) => {
+                    log_info!("检测到aria2c进程关闭，主动重置全局RPC管理器");
+                    *global_manager = None;
+                }
+                None => {
+                    log_warn!("获取RPC管理器锁超时，无法重置全局RPC管理器");
+                }
+            }
+
+            return Err(error_msg);
+        }
+
         // 创建PowerShell进程
         let mut command = Command::new("powershell.exe");
         command
@@ -640,6 +729,12 @@ fn send_rpc_request_via_powershell(
                         attempt + 1,
                         MAX_RETRIES
                     );
+
+                    // 检查是否是GID丢失错误
+                    if error_output.contains("GID") && error_output.contains("is not found") {
+                        log_debug!("检测到GID丢失错误，直接返回GID_NOT_FOUND");
+                        return Err("GID_NOT_FOUND".to_string());
+                    }
                 }
             }
             Err(e) => {
@@ -684,19 +779,22 @@ async fn send_rpc_request_async(
     .map_err(|e| format!("异步任务执行失败: {}", e))?
 }
 
-// 同步包装器 - 用于在非异步环境中调用
-fn send_rpc_request(
-    manager: &Aria2RpcManager,
-    request: &Aria2JsonRpcRequest,
-) -> Result<String, String> {
-    send_rpc_request_via_powershell(manager.clone(), request.clone())
-}
-
 // 获取下载任务状态
-async fn get_download_status(
-    manager: &Aria2RpcManager,
-    gid: &str,
-) -> Result<Option<DownloadStatus>, String> {
+async fn get_download_status(gid: &str) -> Result<Option<DownloadStatus>, String> {
+    // 获取最新的RPC管理器实例
+    if let Err(e) = get_rpc_manager() {
+        return Err(format!("获取RPC管理器失败: {}", e));
+    }
+
+    // 获取管理器锁
+    let manager = match try_lock_with_timeout(&ARIA2_RPC_MANAGER, 1000) {
+        Some(guard) => match guard.as_ref() {
+            Some(mgr) => mgr.clone(),
+            None => return Err("RPC管理器未初始化".to_string()),
+        },
+        None => return Err("获取RPC管理器锁超时".to_string()),
+    };
+
     // 构建JSON-RPC请求
     let request = Aria2JsonRpcRequest {
         jsonrpc: "2.0".to_string(),
@@ -709,7 +807,7 @@ async fn get_download_status(
     };
 
     // 发送请求并获取响应
-    let response = match send_rpc_request_async(manager, &request).await {
+    let response = match send_rpc_request_async(&manager, &request).await {
         Ok(response) => response,
         Err(e) => return Err(e),
     };
@@ -717,7 +815,33 @@ async fn get_download_status(
     // 解析响应
     let response: Aria2JsonRpcResponse<serde_json::Value> = match serde_json::from_str(&response) {
         Ok(response) => response,
-        Err(e) => return Err(format!("解析RPC响应失败: {}", e)),
+        Err(e) => {
+            // 检查是否是GID丢失的错误（PowerShell错误格式）
+            if response.contains("GID") && response.contains("is not found") {
+                return Err("GID_NOT_FOUND".to_string());
+            }
+            return Err(format!("解析RPC响应失败: {}", e));
+        }
+    };
+
+    // 检查响应中是否包含错误信息
+    if let Some(error) = &response.error {
+        // 尝试从error对象中获取message字段
+        let error_message = if let Some(obj) = error.as_object() {
+            if let Some(message) = obj.get("message").and_then(|v| v.as_str()) {
+                message.to_string()
+            } else {
+                "未知错误".to_string()
+            }
+        } else {
+            "未知错误".to_string()
+        };
+
+        // 检测GID丢失错误
+        if error_message.contains("GID") && error_message.contains("is not found") {
+            return Err("GID_NOT_FOUND".to_string());
+        }
+        return Err(format!("RPC请求失败: {}", error_message));
     };
 
     if let Some(result) = response.result {
@@ -772,6 +896,59 @@ async fn get_download_status(
     Ok(None)
 }
 
+// 测试aria2连接是否有效（异步版本）
+async fn test_aria2_connection_async(url: &str, secret: &str) -> bool {
+    log_info!("测试aria2 RPC连接有效性: {}", url);
+
+    // 创建一个简单的RPC请求来获取版本信息
+    let request = Aria2JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        method: "aria2.getVersion".to_string(),
+        params: vec![serde_json::Value::String(format!("token:{}", secret))],
+        id: 1,
+    };
+
+    // 创建一个临时管理器实例用于测试连接
+    let temp_manager = Aria2RpcManager {
+        url: url.to_string(),
+        secret: secret.to_string(),
+        process: None,
+        pid: 0, // 临时实例，PID不相关
+        is_monitored: AtomicBool::new(false),
+    };
+
+    // 尝试发送请求，最多尝试3次，每次间隔100ms
+    for attempt in 1..=3 {
+        match send_rpc_request_async(&temp_manager, &request).await {
+            Ok(response) => {
+                // 检查响应是否有效
+                if !response.is_empty() {
+                    log_info!("aria2 RPC连接测试成功 (第{}次尝试)", attempt);
+                    return true;
+                }
+            }
+            Err(e) => {
+                log_debug!("aria2 RPC连接测试失败 (第{}次尝试): {}", attempt, e);
+                // 如果不是最后一次尝试，则等待一小段时间后重试
+                if attempt < 3 {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    log_warn!("aria2 RPC连接测试失败，所有尝试都已耗尽");
+    false
+}
+
+// 测试aria2连接是否有效（同步包装器）
+fn test_aria2_connection(url: &str, secret: &str) -> bool {
+    // 在线程池中执行异步操作，避免阻塞主进程
+    tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(test_aria2_connection_async(url, secret))
+    })
+}
+
 // 检查进程是否正在运行
 fn is_process_running(pid: u32) -> bool {
     // 检查进程是否存在
@@ -798,19 +975,48 @@ fn is_process_running(pid: u32) -> bool {
 }
 
 // 获取全局RPC管理器
-pub fn get_rpc_manager() -> Result<&'static Mutex<Option<Aria2RpcManager>>, String> {
+pub fn get_rpc_manager() -> Result<(), String> {
     log_debug!("尝试获取全局RPC管理器实例");
 
-    // 检查是否已经初始化RPC管理器
-    let mut manager = match ARIA2_RPC_MANAGER.lock() {
+    // 检查是否已经初始化RPC管理器，使用try_lock并设置超时机制
+    let mut manager = match ARIA2_RPC_MANAGER.try_lock() {
         Ok(guard) => {
             log_debug!("获取RPC管理器锁成功");
             guard
         }
-        Err(poisoned) => {
-            // 处理中毒的锁 - 尝试恢复
-            log_warn!("RPC管理器锁被中毒，尝试恢复...");
-            poisoned.into_inner()
+        Err(_) => {
+            // 检查应用是否正在关闭，如果是则快速返回
+            if is_app_shutting_down() {
+                log_info!("应用正在关闭，跳过RPC管理器获取...");
+                return Err("应用正在关闭，无法获取RPC管理器".to_string());
+            }
+
+            log_warn!("无法立即获取RPC管理器锁，等待500毫秒后重试...");
+            // 等待500毫秒后再次尝试获取锁
+            std::thread::sleep(std::time::Duration::from_millis(500));
+
+            match ARIA2_RPC_MANAGER.try_lock() {
+                Ok(guard) => {
+                    log_debug!("重试获取RPC管理器锁成功");
+                    guard
+                }
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    log_warn!("重试获取RPC管理器锁仍被阻塞");
+                    // 再次获取失败，使用try_lock_with_timeout函数
+                    match try_lock_with_timeout(&ARIA2_RPC_MANAGER, 1000) {
+                        Some(guard) => guard,
+                        None => {
+                            log_error!("获取RPC管理器锁超时");
+                            return Err("获取RPC管理器锁超时".to_string());
+                        }
+                    }
+                }
+                Err(std::sync::TryLockError::Poisoned(e)) => {
+                    // 处理中毒的锁 - 尝试恢复
+                    log_warn!("RPC管理器锁被中毒，尝试恢复...");
+                    e.into_inner()
+                }
+            }
         }
     };
 
@@ -831,8 +1037,8 @@ pub fn get_rpc_manager() -> Result<&'static Mutex<Option<Aria2RpcManager>>, Stri
         }
     }
 
-    log_debug!("RPC管理器获取成功，返回实例");
-    Ok(&ARIA2_RPC_MANAGER)
+    log_debug!("RPC管理器获取成功");
+    Ok(())
 }
 
 /// 处理队列中的单个待处理下载任务
@@ -932,16 +1138,40 @@ pub fn initialize_aria2c_backend() -> Result<(), String> {
 pub fn cleanup_aria2c_resources() {
     log_info!("应用关闭时清理aria2c资源...");
 
-    // 关闭RPC管理器 - 对于关键资源清理，使用lock确保执行
+    // 使用try_lock并设置超时机制，避免在aria2关闭时无限阻塞
     log_info!("尝试获取RPC管理器锁以关闭服务...");
-    if let Ok(mut manager_guard) = ARIA2_RPC_MANAGER.lock() {
-        if let Some(mut rpc_manager) = manager_guard.take() {
+    let mut manager_guard = match ARIA2_RPC_MANAGER.try_lock() {
+        Ok(guard) => Some(guard),
+        Err(_) => {
+            log_warn!("无法立即获取RPC管理器锁，等待1秒后重试...");
+            // 等待1秒后再次尝试获取锁
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            // 第二次尝试获取锁，如果失败则放弃
+            match ARIA2_RPC_MANAGER.try_lock() {
+                Ok(guard) => Some(guard),
+                Err(_) => {
+                    log_error!("再次获取RPC管理器锁失败，跳过RPC管理器清理...");
+                    None
+                }
+            }
+        }
+    };
+
+    // 如果成功获取锁，执行关闭操作
+    if let Some(ref mut guard) = manager_guard {
+        if let Some(mut rpc_manager) = guard.take() {
             log_info!("关闭Aria2 RPC服务器...");
             rpc_manager.shutdown();
         }
-    } else {
-        log_error!("获取RPC管理器锁失败，这是不应该发生的情况！");
     }
+
+    // 重置初始化标志，确保下次启动时能正确重新初始化
+    ARIA2_INITIALIZED.store(false, Ordering::Relaxed);
+    log_info!("重置aria2c初始化标志为false");
+
+    // 清除上次保存的aria2c信息，防止重用旧的配置
+    *LAST_ARIA2_INFO.lock().unwrap() = None;
+    log_info!("清除上次保存的aria2c信息");
 
     // 等待一小段时间，给RPC服务器一些时间关闭
     log_info!("等待RPC服务器关闭...");
@@ -1071,6 +1301,17 @@ pub fn get_aria2c_path() -> PathBuf {
     path
 }
 
+/// 导入已存在的.aria2文件继续下载
+///
+/// 此函数使用aria2c的RPC接口导入已存在的.aria2文件，
+/// 使aria2c继续之前未完成的下载任务。
+///
+/// # 参数
+/// - `aria2_file_path`: .aria2文件的路径
+/// - `app_handle`: Tauri应用句柄，用于发送下载状态事件
+///
+/// # 返回值
+
 /// 取消下载任务 - 通过aria2c RPC接口取消指定的下载任务
 ///
 /// 此函数使用aria2c的RPC接口发送取消下载请求，
@@ -1083,10 +1324,11 @@ pub fn get_aria2c_path() -> PathBuf {
 /// - 成功时返回包含成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 pub async fn cancel_download(gid: &str) -> Result<String, String> {
-    // 获取RPC管理器实例
-    let manager_mutex = get_rpc_manager().map_err(|e| e)?;
+    // 确保RPC管理器已初始化
+    get_rpc_manager().map_err(|e| e)?;
 
-    let manager = manager_mutex
+    // 获取RPC管理器实例
+    let manager = ARIA2_RPC_MANAGER
         .lock()
         .map_err(|_| "无法获取RPC管理器锁".to_string())?;
     let manager = manager
@@ -1254,46 +1496,52 @@ pub async fn download_via_aria2(
         std::thread::spawn(move || {
             log_info!("[{}] 启动后台下载线程", task_id_clone);
 
-            // 获取全局RPC管理器
-            let rpc_manager_mutex = match get_rpc_manager() {
-                Ok(manager) => manager,
-                Err(e) => {
-                    log_error!("[{}] 获取RPC管理器失败: {}", task_id_clone, e);
-                    let _ = tx.send(Err(e));
-                    return;
-                }
-            };
+            // 确保RPC管理器已初始化
+            if let Err(e) = get_rpc_manager() {
+                log_error!("[{}] 获取RPC管理器失败: {}", task_id_clone, e);
+                let _ = tx.send(Err(e));
+                return;
+            }
 
-            // 获取RPC管理器实例
+            // 获取RPC管理器实例，使用带超时的try_lock以避免在关闭时阻塞
             log_debug!("[{}] 获取RPC管理器实例", task_id_clone);
-            let rpc_manager = rpc_manager_mutex.lock().unwrap();
-            log_debug!("[{}] RPC管理器锁获取成功", task_id_clone);
-
-            let manager = match rpc_manager.as_ref() {
-                Some(mgr) => {
-                    log_debug!("[{}] RPC管理器实例存在，URL: {}", task_id_clone, mgr.url);
-                    mgr
+            let manager = match try_lock_with_timeout(&ARIA2_RPC_MANAGER, 1000) {
+                Some(rpc_manager) => {
+                    log_debug!("[{}] RPC管理器锁获取成功", task_id_clone);
+                    match rpc_manager.as_ref() {
+                        Some(mgr) => {
+                            log_debug!("[{}] RPC管理器实例存在，URL: {}", task_id_clone, mgr.url);
+                            // 克隆manager以解决生命周期问题
+                            mgr.clone()
+                        }
+                        None => {
+                            log_error!("[{}] RPC管理器实例不存在", task_id_clone);
+                            let _ = tx.send(Err("RPC管理器未初始化".to_string()));
+                            return;
+                        }
+                    }
                 }
                 None => {
-                    log_error!("[{}] RPC管理器实例不存在", task_id_clone);
-                    let _ = tx.send(Err("RPC管理器未初始化".to_string()));
+                    log_error!("[{}] 获取RPC管理器锁超时", task_id_clone);
+                    let _ = tx.send(Err("获取RPC管理器锁超时".to_string()));
                     return;
                 }
             };
 
             // 添加下载任务到RPC服务器
             log_debug!("[{}] 准备添加下载任务到RPC服务器", task_id_clone);
-            let gid = match manager.add_download(&url_owned, &download_dir_str, &filename_clone) {
-                Ok(id) => {
-                    log_info!("[{}] 下载任务添加成功，GID: {}", task_id_clone, id);
-                    id
-                }
-                Err(e) => {
-                    log_error!("[{}] 添加下载任务失败: {}", task_id_clone, e);
-                    let _ = tx.send(Err(e));
-                    return;
-                }
-            };
+            let mut gid =
+                match manager.add_download_sync(&url_owned, &download_dir_str, &filename_clone) {
+                    Ok(id) => {
+                        log_info!("[{}] 下载任务添加成功，GID: {}", task_id_clone, id);
+                        id
+                    }
+                    Err(e) => {
+                        log_error!("[{}] 添加下载任务失败: {}", task_id_clone, e);
+                        let _ = tx.send(Err(e));
+                        return;
+                    }
+                };
             log_debug!("[{}] 下载任务添加完成，开始监控进度", task_id_clone);
 
             // 监控下载进度
@@ -1448,7 +1696,7 @@ pub async fn download_via_aria2(
                 std::thread::sleep(progress_interval);
 
                 // 检查下载状态
-                let status_result = rt.block_on(get_download_status(&manager, &gid));
+                let status_result = rt.block_on(get_download_status(&gid));
 
                 match status_result {
                     Ok(Some(status)) => {
@@ -1685,7 +1933,7 @@ pub async fn download_via_aria2(
                             let mut confirmed_complete = false;
                             for _ in 0..3 {
                                 std::thread::sleep(Duration::from_secs(1));
-                                let final_status = rt.block_on(get_download_status(&manager, &gid));
+                                let final_status = rt.block_on(get_download_status(&gid));
                                 if let Ok(Some(final_stat)) = final_status {
                                     if final_stat.progress >= 100.0 {
                                         log_info!(
@@ -1716,13 +1964,10 @@ pub async fn download_via_aria2(
                         );
 
                         // 先尝试重新获取RPC管理器，可能连接失效
-                        let _rpc_manager_mutex = match get_rpc_manager() {
-                            Ok(manager) => manager,
-                            Err(e) => {
-                                log_error!("[{}] 重新获取RPC管理器失败: {}", task_id_clone, e);
-                                let _ = tx.send(Err(e));
-                                return;
-                            }
+                        if let Err(e) = get_rpc_manager() {
+                            log_error!("[{}] 重新获取RPC管理器失败: {}", task_id_clone, e);
+                            let _ = tx.send(Err(e));
+                            return;
                         };
 
                         // 检查文件是否存在且不为空
@@ -1812,6 +2057,51 @@ pub async fn download_via_aria2(
                             e
                         );
 
+                        // 检查是否是GID丢失错误，如果是则尝试使用原始URL重新添加任务
+                        if e == "GID_NOT_FOUND" {
+                            log_info!(
+                                "[{}] 检测到GID丢失，尝试使用原始URL重新添加任务",
+                                task_id_clone
+                            );
+
+                            // 尝试重新获取RPC管理器
+                            if let Err(manager_err) = get_rpc_manager() {
+                                log_error!(
+                                    "[{}] 重新获取RPC管理器失败: {}",
+                                    task_id_clone,
+                                    manager_err
+                                );
+                            } else if let Some(manager_guard) =
+                                try_lock_with_timeout(&ARIA2_RPC_MANAGER, 1000)
+                            {
+                                if let Some(current_manager) = manager_guard.as_ref() {
+                                    log_info!(
+                                        "[{}] 尝试使用新的RPC管理器重新添加任务",
+                                        task_id_clone
+                                    );
+
+                                    // 使用原始URL重新添加任务
+                                    if let Ok(new_gid) = current_manager.add_download_sync(
+                                        &url_owned,
+                                        &download_dir_str,
+                                        &filename_clone,
+                                    ) {
+                                        log_info!(
+                                            "[{}] 任务重新添加成功，新GID: {}",
+                                            task_id_clone,
+                                            new_gid
+                                        );
+                                        // 更新GID，继续监控新的任务
+                                        gid = new_gid;
+                                        consecutive_failures = 0;
+                                        continue;
+                                    } else {
+                                        log_error!("[{}] 任务重新添加失败", task_id_clone);
+                                    }
+                                }
+                            }
+                        }
+
                         // 如果连续失败次数过多，尝试重新初始化RPC管理器
                         if consecutive_failures % 3 == 0 {
                             log_info!(
@@ -1819,10 +2109,26 @@ pub async fn download_via_aria2(
                                 task_id_clone
                             );
 
-                            // 强制重新初始化RPC管理器
-                            if let Ok(mut manager) = ARIA2_RPC_MANAGER.lock() {
-                                *manager = None;
-                                log_info!("[{}] RPC管理器已重置，尝试重新获取", task_id_clone);
+                            // 首先尝试重新获取RPC管理器，而不是立即重置
+                            if let Err(e) = get_rpc_manager() {
+                                log_error!("[{}] 重新获取RPC管理器失败: {}", task_id_clone, e);
+                                // 如果重新获取失败，再尝试重置RPC管理器
+                                match try_lock_with_timeout(&ARIA2_RPC_MANAGER, 1000) {
+                                    Some(mut manager) => {
+                                        *manager = None;
+                                        log_info!(
+                                            "[{}] RPC管理器已重置，尝试重新获取",
+                                            task_id_clone
+                                        );
+                                        let _ = get_rpc_manager();
+                                    }
+                                    None => {
+                                        log_warn!(
+                                            "[{}] 获取RPC管理器锁超时，无法重置RPC管理器",
+                                            task_id_clone
+                                        );
+                                    }
+                                }
                             }
                         }
 
