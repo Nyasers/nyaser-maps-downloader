@@ -2,12 +2,13 @@
   "name": "nyaser-maps-downloader",
   "displayName": "Nyaser Maps Downloader",
   "private": true,
-  "version": "1.6.6",
+  "version": "1.6.7",
   "type": "module",
   "scripts": {
     "tauri": "tauri",
     "build": "set NODE_ENV=production && npm run tauri build",
-    "pretauri": "node version.js && npm install && node minify.js"
+    "pretauri": "node version.js && npm install && node minify.js",
+    "version": "node version-builder.js"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
