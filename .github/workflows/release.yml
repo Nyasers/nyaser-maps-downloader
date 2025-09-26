@@ -1,0 +1,60 @@
+name: "Tauri Release"
+
+on:
+  push:
+    # 仅在推送以 'v' 开头的标签时触发 (例如 v1.6.7)
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    # 只需要在 Linux 环境下运行，tauri-action 会处理 Windows 和 macOS 的交叉编译
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      # ⚠️ 关键步骤：设置 Tauri 依赖
+      - name: Setup Node.js and Rust
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # 建议使用 LTS 版本
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc # 假设你的主要目标是 Windows
+      
+      - name: Install Node dependencies
+        run: npm install
+
+      # ⚠️ 关键步骤：在 Actions 环境中加载 .env 变量
+      # 注意：直接读取 .env 文件不安全，应将其中的敏感变量作为 Secret 传入
+      # 这里假设你只需要 TAURI_SIGNING_PRIVATE_KEY 和 TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+      - name: Set environment variables
+        shell: bash
+        run: |
+          # 假设你的 .env 文件中的键和值可以直接用于 Shell
+          # 如果你的构建需要更多的 .env 变量，请在此处设置
+          echo "TAURI_SIGNING_PRIVATE_KEY=${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" >> $GITHUB_ENV
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" >> $GITHUB_ENV
+
+      # 🚀 核心步骤：使用 tauri-action 自动构建、打包、签名和创建 GitHub Release
+      - name: Build and Release Tauri App
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # 必须将 GitHub 令牌传入，以便 Action 有权限创建 Release
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # 将你的构建命令传入
+          command: npm run tauri # 这里的 tauri 脚本应该包含 tauri build
+          # 建议使用 tag 名称作为版本号
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Release ${{ github.ref_name }}'
+          releaseBody: 'See the changelog for details.' # 或使用一个文件来生成说明
+          prerelease: false
+          
+          # 签名密钥和密码会从 GITHUB_ENV 自动获取
+          # tauri-action 会自动查找 TAURI_SIGNING_PRIVATE_KEY 和 TAURI_SIGNING_PRIVATE_KEY_PASSWORD

@@ -5,16 +5,17 @@
   "version": "1.6.7",
   "type": "module",
   "scripts": {
-    "tauri": "tauri",
-    "build": "set NODE_ENV=production && npm run tauri build",
     "pretauri": "npm run version:sync && node minify.js",
+    "tauri": "(FOR /F \"usebackq tokens=*\" %i IN (\"src-tauri/.env\") DO @SET %i) && tauri",
+    "build": "set NODE_ENV=production && npm run tauri build",
     "version": "node version.js",
     "version:sync": "node version-sync.js && npm install"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "dotenv-cli": "^10.0.0",
     "html-minifier-terser": "^7.2.0",
-    "terser": "^5.26.0"
+    "terser": "^5.44.0"
   },
   "dependencies": {
     "@tauri-apps/plugin-dialog": "^2.4.0",
