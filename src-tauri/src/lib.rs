@@ -1,3 +1,6 @@
+// 引入更新插件
+use tauri_plugin_updater::UpdaterExt;
+
 // 导入子模块
 mod aria2c;
 mod commands;
@@ -45,7 +48,13 @@ pub fn run() {
             commands::frontend_loaded,
         ])
         // 添加应用启动时的初始化逻辑
-        .setup(|app| Ok(init::initialize_app(app)?))
+        .setup(|app| {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                update(handle).await.unwrap();
+            });
+            Ok(init::initialize_app(app)?)
+        })
         // 处理不同窗口的关闭请求
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
@@ -66,4 +75,29 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
+    if let Some(update) = app.updater()?.check().await? {
+        let mut downloaded = 0;
+
+        // alternatively we could also call update.download() and update.install() separately
+        update
+            .download_and_install(
+                |chunk_length, content_length| {
+                    downloaded += chunk_length;
+                    println!("downloaded {downloaded} from {content_length:?}");
+                },
+                || {
+                    println!("download finished");
+                },
+            )
+            .await?;
+
+        log_info!("更新安装成功，应用即将重启");
+        app.restart();
+    } else {
+        log_info!("更新检查完成，未发现可用更新");
+    }
+    Ok(())
 }
