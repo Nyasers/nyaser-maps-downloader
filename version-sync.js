@@ -10,7 +10,7 @@ const cargoTomlPath = path.join(rootDir, 'src-tauri', 'Cargo.toml');
 // 获取当前环境模式（development或production）
 function getEnvironmentMode() {
     // 从环境变量或命令行参数中获取环境模式
-    const mode = process.env.NODE_ENV || 'development';
+    const mode = process.env.NODE_ENV || 'production';
     return mode.toLowerCase();
 }
 
