@@ -7,8 +7,9 @@
   "scripts": {
     "tauri": "tauri",
     "build": "set NODE_ENV=production && npm run tauri build",
-    "pretauri": "node version.js && npm install && node minify.js",
-    "version": "node version-builder.js"
+    "pretauri": "npm run version:sync && node minify.js",
+    "version": "node version.js",
+    "version:sync": "node version-sync.js && npm install"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

@@ -1,76 +1,96 @@
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
+
+// 获取命令行参数
+const args = process.argv.slice(2);
+
+if (args.length === 0) {
+    console.error('请提供版本号参数，例如: patch, minor, major 或具体版本号');
+    process.exit(1);
+}
 
 // 定义文件路径
 const rootDir = process.cwd();
 const packageJsonPath = path.join(rootDir, 'package.json');
-const tauriConfPath = path.join(rootDir, 'src-tauri', 'tauri.conf.json');
-const cargoTomlPath = path.join(rootDir, 'src-tauri', 'Cargo.toml');
 
-// 获取当前环境模式（development或production）
-function getEnvironmentMode() {
-    // 从环境变量或命令行参数中获取环境模式
-    const mode = process.env.NODE_ENV || 'development';
-    return mode.toLowerCase();
-}
-
-// 读取package.json获取版本号
-function getVersionFromPackageJson() {
+// 读取package.json
+function readPackageJson() {
     try {
-        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-        return packageJson.version;
+        return JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
     } catch (error) {
         console.error('读取package.json失败:', error);
         process.exit(1);
     }
 }
 
-// 更新tauri.conf.json中的版本号和frontendDist路径
-function updateTauriConf(version) {
+// 写入package.json
+function writePackageJson(data) {
     try {
-        const tauriConf = JSON.parse(fs.readFileSync(tauriConfPath, 'utf-8'));
-        tauriConf.version = version;
+        fs.writeFileSync(packageJsonPath, JSON.stringify(data, null, 2) + '\n', 'utf-8');
+    } catch (error) {
+        console.error('写入package.json失败:', error);
+        process.exit(1);
+    }
+}
 
-        // 根据环境模式设置不同的frontendDist路径
-        const mode = getEnvironmentMode();
-        if (mode === 'development') {
-            tauriConf.build.frontendDist = './asset/html/frontend';
-        } else {
-            tauriConf.build.frontendDist = './dist/html/frontend';
+// 计算新版本号
+function calculateNewVersion(currentVersion, versionType) {
+    if (versionType === 'patch' || versionType === 'minor' || versionType === 'major') {
+        // 解析版本号
+        const [major, minor, patch] = currentVersion.split('.').map(Number);
+        
+        // 根据类型增加版本号
+        if (versionType === 'patch') {
+            return `${major}.${minor}.${patch + 1}`;
+        } else if (versionType === 'minor') {
+            return `${major}.${minor + 1}.0`;
+        } else if (versionType === 'major') {
+            return `${major + 1}.0.0`;
         }
-
-        fs.writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2) + '\n', 'utf-8');
-        console.log(`已更新${tauriConfPath}中的版本号为${version}，环境模式: ${mode}，frontendDist: ${tauriConf.build.frontendDist}`);
-    } catch (error) {
-        console.error('更新tauri.conf.json失败:', error);
-        process.exit(1);
     }
+    
+    // 如果不是patch/minor/major，则直接使用提供的版本号
+    return versionType;
 }
 
-// 更新Cargo.toml中的版本号
-function updateCargoToml(version) {
+// 执行命令并处理错误
+function runCommand(command, description) {
+    console.log(`\n🚀 ${description}...`);
     try {
-        const cargoToml = fs.readFileSync(cargoTomlPath, 'utf-8');
-        const updatedContent = cargoToml.replace(/^version = "[^"]+"/m, `version = "${version}"`);
-        fs.writeFileSync(cargoTomlPath, updatedContent, 'utf-8');
-        console.log(`已更新${cargoTomlPath}中的版本号为${version}`);
+        execSync(command, { stdio: 'inherit', cwd: rootDir });
+        console.log(`✅ ${description} 完成`);
     } catch (error) {
-        console.error('更新Cargo.toml失败:', error);
+        console.error(`❌ ${description} 失败:`, error.message);
         process.exit(1);
     }
 }
-
-
 
 // 主函数
 function main() {
-    const version = getVersionFromPackageJson();
-    console.log(`从package.json获取版本号: ${version}`);
-
-    updateTauriConf(version);
-    updateCargoToml(version);
-
-    console.log('所有文件的版本号更新完成!');
+    const packageJson = readPackageJson();
+    const currentVersion = packageJson.version;
+    const versionArg = args[0];
+    const newVersion = calculateNewVersion(currentVersion, versionArg);
+    
+    console.log(`当前版本: ${currentVersion}`);
+    console.log(`新版本: ${newVersion}`);
+    
+    // 更新package.json中的版本号
+    packageJson.version = newVersion;
+    writePackageJson(packageJson);
+    console.log(`✅ 已更新package.json中的版本号为 ${newVersion}`);
+    
+    // 执行构建命令（build过程中会自动运行version.js）
+    runCommand('npm run build', '执行构建');
+    
+    // 提交更改并创建标签
+    runCommand(`git add .`, '添加所有更改到暂存区');
+    runCommand(`git commit -m "v${newVersion}"`, '提交更改');
+    runCommand(`git tag -a v${newVersion} -m "v${newVersion}"`, `创建标签 v${newVersion}`);
+    
+    console.log(`\n🎉 版本更新完成! 新版本: ${newVersion}`);
+    console.log(`提示: 运行 git push && git push --tags 来推送更改和标签`);
 }
 
 // 执行主函数
