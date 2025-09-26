@@ -76,18 +76,6 @@ impl<T> TaskQueue<T> {
         self.active_tasks.remove(task_id);
     }
 
-    /// 检查队列是否为空
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.queue.is_empty() && self.active_tasks.is_empty()
-    }
-
-    /// 获取队列长度
-    #[allow(dead_code)]
-    pub fn len(&self) -> (usize, usize) {
-        (self.queue.len(), self.active_tasks.len())
-    }
-
     /// 通过ID查找等待队列中的任务
     pub fn find_task_by_id(&self, task_id: &str, get_id_fn: impl Fn(&T) -> String) -> Option<&T> {
         self.queue.iter().find(|task| get_id_fn(task) == task_id)
