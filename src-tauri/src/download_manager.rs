@@ -8,6 +8,7 @@ use std::{
 };
 
 // 第三方库导入
+use regex;
 use serde_json;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::MessageDialogKind;
@@ -440,6 +441,29 @@ pub fn save_download_queue() -> Result<(), String> {
     let mut tasks = Vec::new();
     tasks.extend(active_tasks.clone()); // 先添加活跃任务
     tasks.extend(waiting_tasks); // 再添加等待任务
+
+    // 在保存前处理URL替换：将 https://op.nyase.ru/(.+)?(.*) 替换为 https://maps.nyase.ru/d/$1
+    for task in &mut tasks {
+        if task.url.starts_with("https://op.nyase.ru/") {
+            // 先保存原始URL到临时变量，避免借用冲突
+            let original_url = task.url.clone();
+
+            // 使用正则表达式进行替换
+            if let Some(captures) = regex::Regex::new(r"https://op\.nyase\.ru/(.+?)(\?.*)?$")
+                .unwrap()
+                .captures(&original_url)
+            {
+                if let Some(captured) = captures.get(1) {
+                    // 保存捕获的部分到临时变量
+                    let captured_path = captured.as_str().to_string();
+
+                    // 创建新的URL
+                    task.url = format!("https://maps.nyase.ru/d/{}", captured_path);
+                    log_debug!("已将URL从 '{}' 替换为 '{}'", original_url, task.url);
+                }
+            }
+        }
+    }
 
     // 创建一个只包含tasks字段的结构体
     #[derive(serde::Serialize)]
