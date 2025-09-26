@@ -1,6 +1,6 @@
 [package]
 name = "nyaser-maps-downloader"
-version = "1.7.0"
+version = "1.7.1"
 description = "A Tauri App for downloading L4D2 maps (Windows only)"
 authors = ["Nyaser"]
 edition = "2021"
