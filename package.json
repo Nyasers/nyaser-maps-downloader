@@ -2,12 +2,13 @@
   "name": "nyaser-maps-downloader",
   "displayName": "Nyaser Maps Downloader",
   "private": true,
-  "version": "1.7.3",
+  "version": "1.7.4",
   "type": "module",
   "scripts": {
     "pretauri": "npm run version:sync && node minify.js",
-    "tauri": "(FOR /F \"usebackq tokens=*\" %i IN (\"src-tauri/.env\") DO @SET %i) && tauri",
-    "build": "set NODE_ENV=production && npm run tauri build",
+    "tauri": "tauri",
+    "tauri:win": "(FOR /F \"usebackq tokens=*\" %i IN (\"src-tauri/.env\") DO @SET %i) && tauri",
+    "build": "set NODE_ENV=production && npm run tauri:win build",
     "version": "node version.js",
     "version:sync": "node version-sync.js && npm install"
   },
