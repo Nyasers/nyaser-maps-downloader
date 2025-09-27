@@ -207,6 +207,9 @@ pub async fn process_download_queue(app_handle: AppHandle) {
                     "active_tasks": active_tasks_count}
                 }),
             );
+
+            // 在开始下一个任务前增加等待时间（1秒）
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         });
     };
 
@@ -215,9 +218,6 @@ pub async fn process_download_queue(app_handle: AppHandle) {
 
     // 检查是否应继续处理的函数
     let should_continue_fn = || !is_app_shutting_down();
-
-    // 在开始下一个任务前增加等待时间（1秒）
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // 使用通用的process_queue函数处理下载队列
     process_queue(
