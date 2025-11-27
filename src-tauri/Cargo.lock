@@ -2112,11 +2112,10 @@ dependencies = [
 
 [[package]]
 name = "nyaser-maps-downloader"
-version = "1.8.4"
+version = "1.9.0"
 dependencies = [
  "chrono",
  "lazy_static",
- "regex",
  "serde",
  "serde_json",
  "tauri",
