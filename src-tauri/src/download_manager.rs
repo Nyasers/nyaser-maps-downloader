@@ -287,6 +287,7 @@ pub fn save_download_queue() -> Result<(), String> {
     tasks.extend(waiting_tasks); // 再添加等待任务
 
     // 在保存前处理URL替换：将 https://op.nyase.ru/(.+)?(.*) 替换为 https://maps.nyase.ru/d/$1
+    // 新连接：https://(.+).baidupcs.com/file/(.+) 似乎不好替换
     for task in &mut tasks {
         if task.url.starts_with("https://op.nyase.ru/") {
             // 先保存原始URL到临时变量，避免借用冲突
