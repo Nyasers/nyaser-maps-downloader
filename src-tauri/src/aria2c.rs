@@ -360,7 +360,8 @@ impl Aria2RpcManager {
             "continue": true,
             "max-connection-per-server": 16,
             "split": 16,
-            "console-log-level": "notice"
+            "console-log-level": "notice",
+            "user-agent": "pan.baidu.com",
         });
         params.push(options);
 
@@ -1588,7 +1589,7 @@ pub async fn download_via_aria2(
             let max_zero_speed_checks = 10; // 最大计次，每秒1次，达到10次后重试
             let zero_speed_check_interval = std::time::Duration::from_secs(1); // 计时间隔为1秒
             let mut retry_count = 0; // 重试次数计数
-            let max_retries = 3; // 最大重试次数，达到3次后判定失败
+            let max_retries = 5; // 最大重试次数，达到5次后判定失败
 
             loop {
                 // 检查应用是否正在关闭，如果是则中断下载
@@ -2343,7 +2344,7 @@ pub async fn download_via_aria2(
                 let initial_size = fs::metadata(&file_path_clone).map(|m| m.len()).unwrap_or(0);
                 let mut size_stable = true;
 
-                for _i in 0..5 {
+                for _i in 0..3 {
                     std::thread::sleep(Duration::from_secs(1));
                     if let Ok(new_metadata) = fs::metadata(&file_path_clone) {
                         if new_metadata.len() != initial_size {
