@@ -1397,15 +1397,10 @@
 
         // 检测是否为下载链接
         function isDownloadLink(url) {
-          if (!url) return false;
-
-          if (url.startsWith('https://maps.nyase.ru/d/') ||
-            url.startsWith('https://maps.nyase.ru/p/') ||
-            url.includes('.7z?sign=')) {
-            return true;
-          }
-
-          return false;
+          return (url && (
+            url.match(/http(s?):\/\/maps\.nyase\.ru\/(d|p)\/.+/) ||
+            url.match(/http(s?):\/\/.+\.baidupcs\.com\/file\/.+/)
+          ));
         }
 
         // 设置链接拦截
