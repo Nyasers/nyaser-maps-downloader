@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 // 内部模块导入
 use crate::{
+    utils::{get_file_name},
     dialog_manager::show_dialog,
     dir_manager::DIR_MANAGER,
     download_manager::{process_download, process_download_queue, DownloadTask, DOWNLOAD_QUEUE},
@@ -525,22 +526,24 @@ pub async fn install(url: &str, app_handle: AppHandle) -> Result<String, String>
     log_info!("生成任务ID: {}", task_id);
 
     // 尝试从URL中提取文件名
-    let filename = url
-        .split('/')
-        .last()
-        .map(|s| s.to_string())
-        .unwrap()
-        .split('?')
-        .next()
-        .map(|s| s.to_string());
-    log_debug!("从URL提取文件名: {:?}", filename);
+    let filename = get_file_name(url).unwrap_or_else(|| {
+        log_error!("无法从URL中提取文件名: {}", url);
+        // 显示错误对话框
+        show_dialog(
+            &app_handle,
+            &format!("无法从URL中提取文件名: {}", url),
+            MessageDialogKind::Error,
+            "错误",
+        );
+        "unknown".to_string()
+    });
 
     // 创建下载任务
     let task = DownloadTask {
         id: task_id.clone(),
         url: url.to_string(),
         extract_dir: extract_dir,
-        filename: filename.clone(),
+        filename: Some(filename.clone()),
     };
     log_info!("创建下载任务: ID={}, URL={}", task_id, url);
 

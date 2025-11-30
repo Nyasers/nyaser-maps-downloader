@@ -9,6 +9,7 @@ mod dir_manager;
 mod download_manager;
 mod extract_manager;
 mod init;
+mod utils;
 mod log_utils;
 mod queue_manager;
 
