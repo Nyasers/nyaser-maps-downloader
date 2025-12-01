@@ -24,14 +24,8 @@
       async function loadAndInjectHtmlSnippet() {
         try {
           const { invoke } = window.__TAURI__.core;
-          let htmlSnippet;
-          try {
-            // 尝试使用主要 API
-            htmlSnippet = await invoke('get_middleware');
-          } catch {
-            // 如果失败，使用旧的 API 作为后备
-            htmlSnippet = await invoke('get_html_injection_snippet');
-          }
+
+          const htmlSnippet = await invoke('get_middleware');
 
           const tempDiv = document.createElement('div');
           tempDiv.innerHTML = htmlSnippet;
