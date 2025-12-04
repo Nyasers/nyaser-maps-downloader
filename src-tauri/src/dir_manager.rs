@@ -1,4 +1,4 @@
-// 目录管理器模块 - 负责管理临时目录和解压目录，以及Steam和游戏目录的查找
+// 目录管理器模块 - 负责管理临时目录和解压目录，以及 Steam 和游戏目录的查找
 
 // 标准库导入
 use std::{
@@ -16,13 +16,13 @@ use regex::Regex;
 use uuid::Uuid;
 use winreg::{enums::*, RegKey};
 
-// 全局目录管理器实例，使用Arc<Mutex<>>确保线程安全
+// 全局目录管理器实例，使用 Arc<Mutex<>> 确保线程安全
 lazy_static! {
     pub static ref DIR_MANAGER: Arc<Mutex<Option<DirManager>>> = Arc::new(Mutex::new(None));
 }
 
 // 目录管理器，负责创建和管理临时目录和解压目录
-// 实现Drop trait在程序退出时自动清理临时目录
+// 实现 Drop trait，在程序退出时自动清理临时目录
 pub struct DirManager {
     temp_dir: PathBuf,
     extract_dir: Option<PathBuf>,
@@ -31,12 +31,14 @@ pub struct DirManager {
 impl DirManager {
     /// 创建一个新的目录管理器实例
     ///
-    /// 返回包含临时目录的DirManager实例，临时目录以"nmd_"开头并附加随机UUID
+    /// 返回包含临时目录的 DirManager 实例
+    ///
+    /// 临时目录以 "nmd_" 开头并附加随机 UUID
     pub fn new() -> Result<Self, String> {
         // 获取系统临时目录
         let sys_temp_dir = temp_dir();
 
-        // 创建以"nmd"开头的临时目录（Nyaser Maps Downloader）
+        // 创建以 "nmd" 开头的临时目录（Nyaser Maps Downloader）
         let temp_dir = sys_temp_dir.join(format!("nmd_{}", Uuid::new_v4().simple()));
 
         // 确保临时目录存在，创建失败时返回错误
@@ -64,7 +66,7 @@ impl DirManager {
     }
 }
 
-// 实现Drop trait，在结构体被销毁时自动清理临时目录
+// 实现 Drop trait，在结构体被销毁时自动清理临时目录
 impl Drop for DirManager {
     fn drop(&mut self) {
         // 尝试删除临时目录及其所有内容
@@ -115,35 +117,35 @@ pub fn set_global_extract_dir(extract_dir: &str) -> Result<(), String> {
 
 /// 显式清理全局临时目录
 ///
-/// 重置目录管理器，触发Drop trait的执行以清理临时目录
+/// 重置目录管理器，触发 Drop trait 的执行以清理临时目录
 pub fn cleanup_temp_dir() {
     if let Ok(mut manager) = DIR_MANAGER.lock() {
-        // 重置管理器，触发Drop trait的执行
+        // 重置管理器，触发 Drop trait 的执行
         *manager = None;
     }
 }
 
 // ========== Steam相关功能 ==========
 
-/// 从Windows注册表获取Steam安装路径
+/// 从 Windows 注册表获取 Steam 安装路径
 pub fn get_steam_install_path() -> Result<String, String> {
     // 打开注册表项
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let steam_key = hklm
         .open_subkey("SOFTWARE\\WOW6432Node\\Valve\\Steam")
-        .map_err(|e| format!("无法打开Steam注册表项: {:?}", e))?;
+        .map_err(|e| format!("无法打开 Steam 注册表项, 请检查 Steam 是否已安装:\n{:?}", e))?;
 
-    // 读取InstallPath值
+    // 读取 InstallPath 值
     let install_path: String = steam_key
         .get_value("InstallPath")
-        .map_err(|e| format!("无法读取InstallPath值: {:?}", e))?;
+        .map_err(|e| format!("无法读取 InstallPath 值, 请检查 Steam 是否正确安装:\n{:?}", e))?;
 
     Ok(install_path)
 }
 
-/// 解析libraryfolders.vdf文件获取所有Steam库路径
+/// 解析 libraryfolders.vdf 文件获取所有 Steam 库路径
 ///
-/// 返回包含所有Steam库路径的向量，包括主Steam目录
+/// 返回包含所有 Steam 库路径的向量，包括主 Steam 目录
 pub fn parse_library_folders(steam_path: &str) -> Result<Vec<String>, String> {
     let vdf_path = PathBuf::from(steam_path)
         .join("steamapps")
@@ -151,13 +153,13 @@ pub fn parse_library_folders(steam_path: &str) -> Result<Vec<String>, String> {
 
     if !vdf_path.exists() {
         return Err(format!(
-            "libraryfolders.vdf文件不存在: {}",
+            "libraryfolders.vdf 文件不存在:\n{}",
             vdf_path.display()
         ));
     }
 
     let vdf_content = fs::read_to_string(&vdf_path)
-        .map_err(|e| format!("无法读取libraryfolders.vdf文件: {:?}", e))?;
+        .map_err(|e| format!("无法读取 libraryfolders.vdf 文件:\n{:?}", e))?;
 
     let mut library_paths = Vec::new();
     library_paths.push(steam_path.to_string()); // 添加主Steam目录
@@ -189,13 +191,13 @@ pub fn parse_library_folders(steam_path: &str) -> Result<Vec<String>, String> {
 pub fn parse_appmanifest(manifest_path: &PathBuf) -> Result<String, String> {
     if !manifest_path.exists() {
         return Err(format!(
-            "appmanifest文件不存在: {}",
+            "appmanifest 文件不存在:\n{}",
             manifest_path.display()
         ));
     }
 
     let manifest_content = fs::read_to_string(manifest_path)
-        .map_err(|e| format!("无法读取appmanifest文件: {:?}", e))?;
+        .map_err(|e| format!("无法读取 appmanifest 文件:\n{:?}", e))?;
 
     // 首先尝试使用正则表达式查找installdir值
     let re = Regex::new(r#"installdir"\s+"([^"]+)"#).unwrap();
@@ -219,17 +221,17 @@ pub fn parse_appmanifest(manifest_path: &PathBuf) -> Result<String, String> {
         }
     }
 
-    Err("在appmanifest文件中未找到installdir值".to_string())
+    Err("在 appmanifest 文件中未找到 installdir 值".to_string())
 }
 
-/// 获取Left 4 Dead 2的addons目录路径
+/// 获取 Left 4 Dead 2 的 addons 目录路径
 ///
 /// 该函数通过以下步骤查找游戏目录：
-/// 1. 从注册表获取Steam安装路径
-/// 2. 解析libraryfolders.vdf获取所有Steam库路径
-/// 3. 遍历所有库路径，查找Left 4 Dead 2的appmanifest文件
-/// 4. 解析appmanifest获取游戏安装目录
-/// 5. 构建并验证addons目录路径
+/// 1. 从注册表获取 Steam 安装路径
+/// 2. 解析 libraryfolders.vdf 获取所有 Steam 库路径
+/// 3. 遍历所有库路径，查找 Left 4 Dead 2 的 appmanifest 文件
+/// 4. 解析 appmanifest 获取游戏安装目录
+/// 5. 构建并验证 addons 目录路径
 pub fn get_l4d2_addons_dir() -> Result<String, String> {
     // 从注册表获取Steam安装路径
     let steam_path = get_steam_install_path()?;
