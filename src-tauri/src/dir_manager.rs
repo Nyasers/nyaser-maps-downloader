@@ -136,9 +136,12 @@ pub fn get_steam_install_path() -> Result<String, String> {
         .map_err(|e| format!("无法打开 Steam 注册表项, 请检查 Steam 是否已安装:\n{:?}", e))?;
 
     // 读取 InstallPath 值
-    let install_path: String = steam_key
-        .get_value("InstallPath")
-        .map_err(|e| format!("无法读取 InstallPath 值, 请检查 Steam 是否正确安装:\n{:?}", e))?;
+    let install_path: String = steam_key.get_value("InstallPath").map_err(|e| {
+        format!(
+            "无法读取 InstallPath 值, 请检查 Steam 是否正确安装:\n{:?}",
+            e
+        )
+    })?;
 
     Ok(install_path)
 }

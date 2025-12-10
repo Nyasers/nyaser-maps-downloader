@@ -846,6 +846,14 @@
         // 每5秒检查一次停滞的下载任务
         setInterval(checkStalledDownloads, 5000);
 
+        // 监听深层链接打开事件
+        const deepLinkUnlisten = listen('deep-link-open', (event) => {
+          let url = event.payload;
+          if (!url.startsWith('/')) url = '/' + url;
+          console.log('Open Link Received:', url);
+          location.href = url;
+        });
+
         // 监听下载进度事件
         const progressUnlisten = listen('download-progress', (event) => {
           // 接收到进度事件

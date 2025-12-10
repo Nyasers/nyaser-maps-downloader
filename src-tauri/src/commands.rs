@@ -8,11 +8,11 @@ use uuid::Uuid;
 
 // 内部模块导入
 use crate::{
-    utils::{get_file_name},
     dialog_manager::show_dialog,
     dir_manager::DIR_MANAGER,
     download_manager::{process_download, process_download_queue, DownloadTask, DOWNLOAD_QUEUE},
     log_debug, log_error, log_info, log_warn,
+    utils::get_file_name,
 };
 
 /// 获取HTML注入片段 - 从应用资源中读取并返回完整的HTML注入片段

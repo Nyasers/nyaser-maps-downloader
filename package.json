@@ -2,7 +2,7 @@
   "name": "nyaser-maps-downloader",
   "displayName": "Nyaser Maps Downloader",
   "private": true,
-  "version": "1.9.8",
+  "version": "1.10.0",
   "type": "module",
   "scripts": {
     "pretauri": "npm run version:sync && node minify.js",
@@ -20,6 +20,7 @@
     "terser": "^5.44.0"
   },
   "dependencies": {
+    "@tauri-apps/plugin-deep-link": "^2.4.5",
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.9.0"
   }

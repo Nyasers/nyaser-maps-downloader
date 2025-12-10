@@ -1,4 +1,6 @@
+use tauri::{Manager, Url, AppHandle, Emitter};
 // 引入更新插件
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_updater::UpdaterExt;
 
 // 导入子模块
@@ -9,9 +11,9 @@ mod dir_manager;
 mod download_manager;
 mod extract_manager;
 mod init;
-mod utils;
 mod log_utils;
 mod queue_manager;
+mod utils;
 
 // 异步信号处理函数
 async fn handle_signals() {
@@ -19,6 +21,33 @@ async fn handle_signals() {
     tokio::signal::ctrl_c().await.expect("无法等待Ctrl+C信号");
     // 收到信号后清理资源
     init::cleanup_app_resources();
+}
+
+fn handle_open(app: AppHandle, arg: &str) {
+    log_info!("收到打开URL: {}", arg);
+    // 将接收到的参数发送给前端主窗口
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.emit("deep-link-open", arg);
+    }
+}
+
+fn handle_deep_link(app: AppHandle, urls: Vec<Url>) {
+    for url in urls {
+        if url.scheme() == "nmd" {
+            let url = url.to_string().replace("nmd://", "");
+            log_info!("收到nmd协议: {}", url);
+            if let Some(args) = url.to_string().split_once("/") {
+                match args.0 {
+                    "open" => {
+                        handle_open(app.clone(), args.1);
+                    }
+                    _ => {
+                        log_error!("未知的nmd协议参数: {}", args.0);
+                    }
+                }
+            }
+        }
+    }
 }
 
 // 主入口函数
@@ -33,6 +62,24 @@ pub fn run() {
     });
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let handle = app.app_handle().clone();
+            let window = &app.webview_windows()["main"];
+            if window.is_minimized().unwrap() {
+                window.unminimize().unwrap();
+            }
+            window.set_focus().unwrap();
+            let urls_like = args.into_iter().map(|s| {
+                if let Ok(url) = Url::parse(&s) {
+                    url
+                } else {
+                    log_error!("无法解析URL: {}", s);
+                    Url::parse("").unwrap()
+                }
+            }).collect::<Vec<_>>();
+            handle_deep_link(handle, urls_like);
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -54,6 +101,20 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 update(handle).await.unwrap();
             });
+            let deep_link = app.deep_link();
+            let protocol = "nmd";
+            if let Ok(is_registered) = deep_link.is_registered(protocol) {
+                if !is_registered{
+                    if let Err(e) = deep_link.register(protocol) {
+                        log_error!("注册{}协议失败: {:?}", protocol, e);
+                    } else {
+                        log_info!("{}协议注册成功", protocol);
+                    }
+                }
+            }
+            if let Ok(Some(urls)) = deep_link.get_current() {
+                handle_deep_link(app.handle().clone(), urls);
+            }
             Ok(init::initialize_app(app)?)
         })
         // 处理不同窗口的关闭请求
