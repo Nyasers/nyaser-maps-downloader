@@ -608,9 +608,6 @@
 
       // 检测到Tauri环境，静默启动
 
-      // 保存原始的window.open函数引用，用于绕过拦截器
-      const originalWindowOpen = window.open;
-
       function createObserver(callback) {
         const observer = new MutationObserver(callback);
         return function () {
@@ -1417,6 +1414,7 @@
           try {
             if (window.__TAURI__) {
               await window.__TAURI__.core.invoke('frontend_loaded');
+              await window.__TAURI__.core.invoke('deep_link_ready');
               console.log('Nyaser Maps Downloader: 已通知后端前端加载完成');
             }
           } catch (error) {

@@ -11,7 +11,7 @@ use crate::{
     dialog_manager::show_dialog,
     dir_manager::DIR_MANAGER,
     download_manager::{process_download, process_download_queue, DownloadTask, DOWNLOAD_QUEUE},
-    log_debug, log_error, log_info, log_warn,
+    handle_deep_link, log_debug, log_error, log_info, log_warn,
     utils::get_file_name,
 };
 
@@ -834,4 +834,13 @@ pub fn frontend_loaded() -> Result<String, String> {
     process_download().map_err(|e| e.to_string())?;
 
     Ok("前端加载完成通知已收到".into())
+}
+
+#[tauri::command]
+pub fn deep_link_ready(handle: AppHandle) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let args = std::env::args().collect::<Vec<_>>();
+        handle_deep_link(handle.clone(), args);
+    });
 }

@@ -1,5 +1,5 @@
-use tauri::{Manager, Url, AppHandle, Emitter};
-// 引入更新插件
+// 引入 Tauri 相关模块
+use tauri::{AppHandle, Emitter, Manager, Url};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_updater::UpdaterExt;
 
@@ -31,7 +31,13 @@ fn handle_open(app: AppHandle, arg: &str) {
     }
 }
 
-fn handle_deep_link(app: AppHandle, urls: Vec<Url>) {
+fn handle_deep_link(app: AppHandle, args: Vec<String>) {
+    log_info!("收到参数: {:?}", args);
+    let urls = args
+        .into_iter()
+        .skip(1)
+        .filter_map(|s| Url::parse(&s).ok())
+        .collect::<Vec<_>>();
     for url in urls {
         if url.scheme() == "nmd" {
             let url = url.to_string().replace("nmd://", "");
@@ -69,15 +75,7 @@ pub fn run() {
                 window.unminimize().unwrap();
             }
             window.set_focus().unwrap();
-            let urls_like = args.into_iter().map(|s| {
-                if let Ok(url) = Url::parse(&s) {
-                    url
-                } else {
-                    log_error!("无法解析URL: {}", s);
-                    Url::parse("").unwrap()
-                }
-            }).collect::<Vec<_>>();
-            handle_deep_link(handle, urls_like);
+            handle_deep_link(handle, args);
         }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -94,29 +92,8 @@ pub fn run() {
             commands::refresh_download_queue,
             commands::cancel_all_downloads,
             commands::frontend_loaded,
+            commands::deep_link_ready,
         ])
-        // 添加应用启动时的初始化逻辑
-        .setup(|app| {
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                update(handle).await.unwrap();
-            });
-            let deep_link = app.deep_link();
-            let protocol = "nmd";
-            if let Ok(is_registered) = deep_link.is_registered(protocol) {
-                if !is_registered{
-                    if let Err(e) = deep_link.register(protocol) {
-                        log_error!("注册{}协议失败: {:?}", protocol, e);
-                    } else {
-                        log_info!("{}协议注册成功", protocol);
-                    }
-                }
-            }
-            if let Ok(Some(urls)) = deep_link.get_current() {
-                handle_deep_link(app.handle().clone(), urls);
-            }
-            Ok(init::initialize_app(app)?)
-        })
         // 处理不同窗口的关闭请求
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
@@ -134,6 +111,27 @@ pub fn run() {
                 }
             }
             _ => {}
+        })
+        // 添加应用启动时的初始化逻辑
+        .setup(|app| {
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    update(handle).await.unwrap();
+                });
+            }
+            let deep_link = app.deep_link();
+            let protocol = "nmd";
+            if let Ok(is_registered) = deep_link.is_registered(protocol) {
+                if !is_registered {
+                    if let Err(e) = deep_link.register(protocol) {
+                        log_error!("注册{}协议失败: {:?}", protocol, e);
+                    } else {
+                        log_info!("{}协议注册成功", protocol);
+                    }
+                }
+            }
+            Ok(init::initialize_app(app)?)
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
