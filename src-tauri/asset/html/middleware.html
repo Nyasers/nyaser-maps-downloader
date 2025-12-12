@@ -429,7 +429,6 @@
 <script>
   !function () {
     try {
-
       // 创建下载任务容器和警告通知元素
       const downloadsContainer = document.createElement('div');
       downloadsContainer.className = 'nmd-container';
@@ -588,6 +587,83 @@
         }
       }
 
+      // 将下载链接传递给后端处理
+      async function handleDownloadLink(url, path = '') {
+        try {
+          let result = await window.__TAURI__.core.invoke('install', {
+            url: url,
+            path: path
+          });
+          return true;
+        } catch (error) {
+          console.error('Nyaser Maps Downloader: 处理下载链接失败:', error);
+          // 为依赖错误提供更详细的帮助信息
+          let errorMessage = error.message || '未知错误';
+
+          // 显示错误警告信息
+          warningDisplay.textContent = '错误: 下载失败 - ' + errorMessage;
+          warningDisplay.style.display = 'block';
+          warningDisplay.style.background = 'rgba(244, 67, 54, 0.9)'; // 红色背景表示错误
+
+          // 10秒后自动隐藏错误警告
+          setTimeout(() => {
+            warningDisplay.style.display = 'none';
+            warningDisplay.style.background = 'rgba(255, 152, 0, 0.9)'; // 恢复橙色背景
+          }, 10000);
+
+          return false;
+        }
+      }
+
+      function isNormalLink(url) {
+        return url.match(/http(s?):\/\/.+\.nyase\.ru\/(d|p)\/.+/);
+      }
+
+      function getFilenameFromNormalLink(url) {
+        let re = /\/([^\/?]+)(\?.*)?$/;
+        let match = url.match(re);
+        if (match && match[1]) {
+          return match[1];
+        } else {
+          return null;
+        }
+      }
+
+      function isBaidupcsLink(url) {
+        return url.match(/http(s?):\/\/.+\.baidupcs\.com\/file\/.+/);
+      }
+
+      function getFilenameFromBaidupcsLink(url) {
+        let re = /&fin=([^&]+)/;
+        let match = url.match(re);
+        if (match && match[1]) {
+          let encoded_name = match[1];
+          let fixed_encoded = encoded_name.replaceAll('+', "%20");
+          if (fixed_encoded) {
+            return decodeURIComponent(fixed_encoded);
+          } else {
+            return decodeURIComponent(encoded_name);
+          }
+        } else {
+          return null;
+        }
+      }
+
+      // 检测是否为下载链接
+      function isDownloadLink(url) {
+        return (url && (isNormalLink(url) || isBaidupcsLink(url)));
+      }
+
+      function getFilename(url) {
+        if (isNormalLink(url)) {
+          return getFilenameFromNormalLink(url);
+        } else if (isBaidupcsLink(url)) {
+          return getFilenameFromBaidupcsLink(url);
+        } else {
+          return null;
+        }
+      }
+
       // 等待全局TAURI对象可用的函数
       function waitForTauri() {
         return new Promise((resolve) => {
@@ -676,12 +752,8 @@
                 createToolbarButton("server-list-button", `<path d="M864 138.666667v768h-704v-768h704z m-64 533.333333h-576v170.666667h576v-170.666667zM704 725.333333v64h-128v-64h128z m96-288h-576v170.666667h576v-170.666667zM704 490.666667v64h-128v-64h128z m96-288h-576v170.666666h576v-170.666666zM704 256v64h-128v-64h128z" fill="#1890ff" p-id="4714"></path>`,
                   async (event) => {
                     try {
-                      if (window.__TAURI__?.core?.invoke) {
-                        console.log('Nyaser Maps Downloader: 调用后端open_server_list_window命令');
-                        await window.__TAURI__.core.invoke('open_server_list_window');
-                      } else {
-                        console.error('Nyaser Maps Downloader: Tauri invoke API不可用');
-                      }
+                      console.log('Nyaser Maps Downloader: 调用后端open_server_list_window命令');
+                      await window.__TAURI__.core.invoke('open_server_list_window');
                     } catch (e) {
                       console.error('Nyaser Maps Downloader: 打开服务器列表窗口时出错:', e);
                     }
@@ -692,12 +764,8 @@
                 createToolbarButton("file-manager-button", `<path d="M98 351c-17.7 0-32-14.3-32-32V192.8c0-52.9 43.1-96 96-96h221c52.9 0 96 43.1 96 96V255c0 17.7-14.3 32-32 32s-32-14.3-32-32v-62.2c0-17.6-14.4-32-32-32H162c-17.6 0-32 14.4-32 32V319c0 17.6-14.3 32-32 32z" fill="#1890ff" p-id="4791"></path><path d="M864 926.6H383c-17.7 0-32-14.3-32-32s14.3-32 32-32h481c17.6 0 32-14.4 32-32V319c0-17.6-14.4-32-32-32H447c-17.7 0-32-14.3-32-32s14.3-32 32-32h417c52.9 0 96 43.1 96 96v511.7c0 52.9-43.1 95.9-96 95.9z" fill="#1890ff" p-id="4792"></path><path d="M383 926.6H162c-52.9 0-96-43.1-96-96V319c0-17.7 14.3-32 32-32s32 14.3 32 32v511.7c0 17.6 14.4 32 32 32h221c17.7 0 32 14.3 32 32 0 17.6-14.3 31.9-32 31.9zM768.1 511.2H256c-17.7 0-32-14.3-32-32s14.3-32 32-32h512.1c17.7 0 32 14.3 32 32s-14.3 32-32 32z" fill="#1890ff" p-id="4793"></path><path d="M768.1 703H256c-17.7 0-32-14.3-32-32s14.3-32 32-32h512.1c17.7 0 32 14.3 32 32s-14.3 32-32 32z" fill="#1890ff" p-id="4794"></path>`,
                   async (event) => {
                     try {
-                      if (window.__TAURI__?.core?.invoke) {
-                        console.log('Nyaser Maps Downloader: 调用后端open_file_manager_window命令');
-                        await window.__TAURI__.core.invoke('open_file_manager_window');
-                      } else {
-                        console.error('Nyaser Maps Downloader: Tauri invoke API不可用');
-                      }
+                      console.log('Nyaser Maps Downloader: 调用后端open_file_manager_window命令');
+                      await window.__TAURI__.core.invoke('open_file_manager_window');
                     } catch (e) {
                       console.error('Nyaser Maps Downloader: 打开文件管理器窗口时出错:', e);
                     }
@@ -718,37 +786,38 @@
             console.log('Nyaser Maps Downloader: 成功修改按钮文本为"安装"');
           }
 
-          // 2. 尝试找到第二个目标按钮 - 复制链接按钮改为"下载"
+          // 2. 尝试找到第二个目标按钮 - 复制链接按钮改为"保存并安装"
           const copyLinkButton = document.querySelector("div.fileinfo > div:nth-child(3) > div > button");
-          if (copyLinkButton && copyLinkButton.textContent !== '下载') {
-            // 将按钮文本改为"下载"
-            copyLinkButton.textContent = '下载';
+          if (copyLinkButton && copyLinkButton.textContent !== '保存并安装') {
+            // 将按钮文本改为"保存并安装"
+            copyLinkButton.textContent = '保存并安装';
 
             // 移除原有的点击事件监听器并创建新按钮
             const newButton = copyLinkButton.cloneNode(true);
             copyLinkButton.parentNode.replaceChild(newButton, copyLinkButton);
 
             // 添加新的点击事件处理器，使用捕获阶段确保优先处理
-            newButton.addEventListener('click', function (event) {
+            newButton.addEventListener('click', async function (event) {
               // 尝试获取链接
               const linkElement = document.querySelector("div.fileinfo > div:nth-child(3) > div > a");
               if (linkElement && linkElement.href) {
                 try {
-                  console.log('Nyaser Maps Downloader: 点击下载按钮，链接地址:', linkElement.href);
-
-                  // 使用Tauri invoke调用后端的open_external_link命令
-                  if (window.__TAURI__?.core?.invoke) {
-                    console.log('Nyaser Maps Downloader: 调用后端open_external_link命令');
-                    window.__TAURI__.core.invoke('open_external_link', {
-                      url: linkElement.href
-                    }).then(result => {
-                      console.log('Nyaser Maps Downloader: 链接打开结果:', result);
-                    }).catch(err => {
-                      console.error('Nyaser Maps Downloader: 调用后端命令时出错:', err);
-                    });
+                  console.log('Nyaser Maps Downloader: 点击保存并安装按钮，链接地址:', linkElement.href);
+                  const filename = getFilename(linkElement.href);
+                  if (filename) {
+                    console.log('Nyaser Maps Downloader: 提取到文件名:', filename);
                   } else {
-                    console.error('Nyaser Maps Downloader: Tauri invoke API不可用');
+                    throw new Error('Nyaser Maps Downloader: 从链接中提取文件名失败');
                   }
+                  const save = window.__TAURI__.dialog.save;
+                  const selected = await save({
+                    title: '选择保存位置',
+                    defaultPath: filename,
+                    filters: [
+                      { name: '7-zip Files', extensions: ['7z'] }
+                    ]
+                  });
+                  if (selected) await handleDownloadLink(linkElement.href, selected);
                 } catch (e) {
                   console.error('Nyaser Maps Downloader: 处理点击事件时出错:', e.message, e.stack);
                 }
@@ -757,7 +826,7 @@
               }
             }, true); // 使用true参数在捕获阶段执行
 
-            console.log('Nyaser Maps Downloader: 成功修改复制链接按钮为"下载"');
+            console.log('Nyaser Maps Downloader: 成功修改复制链接按钮为"保存并安装"');
           }
         } catch (e) {
           console.error('Nyaser Maps Downloader: 修改按钮时出错:', e);
@@ -788,16 +857,6 @@
           return;
         }
 
-        // 提取invoke和event API
-        const { invoke } = window.__TAURI__.core;
-        const { listen, once } = window.__TAURI__.event;
-
-        // 提取shell API
-        if (window.__TAURI__?.shell?.open) {
-          shellAPI = window.__TAURI__.shell.open;
-          console.log('Nyaser Maps Downloader: 成功初始化shell API');
-        }
-
         // 初始化完成后再启动观察器
         observers.map(f => f());
 
@@ -820,13 +879,11 @@
 
               // 向后端发送特殊的取消下载命令，表示这是因为下载停滞而取消的
               try {
-                if (window.__TAURI__?.core?.invoke) {
-                  window.__TAURI__.core.invoke('cancel_download', {
-                    taskId: taskId,
-                    reason: 'stalled' // 添加reason参数标记这是由于下载停滞而取消的
-                  });
-                  console.log('Nyaser Maps Downloader: 检测到下载停滞，已取消下载任务:', taskId);
-                }
+                window.__TAURI__.core.invoke('cancel_download', {
+                  taskId: taskId,
+                  reason: 'stalled' // 添加reason参数标记这是由于下载停滞而取消的
+                });
+                console.log('Nyaser Maps Downloader: 检测到下载停滞，已取消下载任务:', taskId);
               } catch (error) {
                 console.error('Nyaser Maps Downloader: 取消停滞下载失败:', error);
               }
@@ -842,6 +899,9 @@
 
         // 每5秒检查一次停滞的下载任务
         setInterval(checkStalledDownloads, 5000);
+
+        // 提取event API
+        const { listen } = window.__TAURI__.event;
 
         // 监听深层链接打开事件
         const deepLinkUnlisten = listen('deep-link-open', (event) => {
@@ -1305,55 +1365,19 @@
         // 完成事件监听器注册成功
 
         // 添加窗口关闭时清理监听器的逻辑
-        window.addEventListener('beforeunload', () => {
-          // 清理事件监听器
-          progressUnlisten();
-          downloadedUnlisten();
-          extractStartUnlisten();
-          completeUnlisten();
-          taskStartUnlisten();
-          downloadFailedUnlisten();
-          taskAddUnlisten();
-          queueUpdateUnlisten();
-          dirChangedUnlisten();
-          gameDirWarningUnlisten();
-          cancelDownloadUnlisten();
-        });
-
-        // 将下载链接传递给后端处理
-        async function handleDownloadLink(url) {
-          try {
-            let result = await invoke('install', {
-              url: url
-            });
-            return true;
-          } catch (error) {
-            console.error('Nyaser Maps Downloader: 处理下载链接失败:', error);
-            // 为依赖错误提供更详细的帮助信息
-            let errorMessage = error.message || '未知错误';
-
-            // 显示错误警告信息
-            warningDisplay.textContent = '错误: 下载失败 - ' + errorMessage;
-            warningDisplay.style.display = 'block';
-            warningDisplay.style.background = 'rgba(244, 67, 54, 0.9)'; // 红色背景表示错误
-
-            // 10秒后自动隐藏错误警告
-            setTimeout(() => {
-              warningDisplay.style.display = 'none';
-              warningDisplay.style.background = 'rgba(255, 152, 0, 0.9)'; // 恢复橙色背景
-            }, 10000);
-
-            return false;
-          }
-        }
-
-        // 检测是否为下载链接
-        function isDownloadLink(url) {
-          return (url && (
-            url.match(/http(s?):\/\/maps\.nyase\.ru\/(d|p)\/.+/) ||
-            url.match(/http(s?):\/\/.+\.baidupcs\.com\/file\/.+/)
-          ));
-        }
+        [
+          progressUnlisten,
+          downloadedUnlisten,
+          extractStartUnlisten,
+          completeUnlisten,
+          taskStartUnlisten,
+          downloadFailedUnlisten,
+          taskAddUnlisten,
+          queueUpdateUnlisten,
+          dirChangedUnlisten,
+          gameDirWarningUnlisten,
+          cancelDownloadUnlisten
+        ].forEach(fn => window.addEventListener('beforeunload', fn));
 
         // 设置链接拦截
         function setupLinkInterceptor() {
@@ -1403,11 +1427,11 @@
         setupLinkInterceptor();
 
         // 导出公共API
-        window.NyaserMapsDownloader = {
-          handleDownloadLink,
-          isDownloadLink,
-          setupLinkInterceptor
-        };
+        // window.NyaserMapsDownloader = {
+        //   handleDownloadLink,
+        //   isDownloadLink,
+        //   setupLinkInterceptor
+        // };
 
         // 通知后端页面已加载完成
         async function notifyLoaded() {
@@ -1445,7 +1469,7 @@
           loadedIndicator.style.display = 'none';
 
           // 添加点击隐藏事件
-          loadedIndicator.addEventListener('click', () => {
+          loadedIndicator.addEventListener('click', async () => {
             loadedIndicator.style.opacity = '0';
             setTimeout(() => {
               loadedIndicator.style.display = 'none';

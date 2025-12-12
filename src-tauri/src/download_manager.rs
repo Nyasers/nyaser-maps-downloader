@@ -33,6 +33,8 @@ pub struct DownloadTask {
     pub extract_dir: String,
     /// 文件名（可选，如未指定则从URL中提取）
     pub filename: Option<String>,
+    /// 下载文件保存路径（可选，如未指定则不保存）
+    pub savepath: Option<String>,
 }
 
 // 创建全局下载队列实例 - 使用lazy_static实现延迟初始化
@@ -58,12 +60,14 @@ pub async fn process_download_queue(app_handle: AppHandle) {
         let task_id = task.id.clone();
         let filename = task.filename.clone().unwrap_or("未知文件".to_string());
         let url = task.url.clone();
+        let savepath = task.savepath.clone();
 
         log_info!(
-            "开始处理下载任务 [{}]: {} (URL: {})",
+            "开始处理下载任务 [{}]: {} (URL: {}, 保存路径: {})",
             task_id,
             filename,
-            url
+            url,
+            savepath.as_deref().unwrap_or("未指定")
         );
 
         // 将任务添加到全局活跃任务集合中
@@ -101,6 +105,7 @@ pub async fn process_download_queue(app_handle: AppHandle) {
             let result = download_and_extract(
                 &task_clone.url,
                 &task_clone.extract_dir,
+                savepath.as_deref(),
                 app_clone.clone(),
                 &task_clone.id,
             )
@@ -467,6 +472,7 @@ pub fn update_download_queue_status(app_handle: &AppHandle) {
 pub async fn download_and_extract(
     url: &str,
     extract_dir: &str,
+    savepath: Option<&str>,
     app_handle: AppHandle,
     task_id: &str,
 ) -> Result<String, String> {
@@ -494,6 +500,19 @@ pub async fn download_and_extract(
         task_id,
         file_path
     );
+
+    if let Some(savepath) = savepath {
+        if !savepath.is_empty() {
+            log_info!(
+                "开始复制文件 [{}]: 源路径={}, 目标路径={}",
+                task_id,
+                file_path,
+                savepath
+            );
+            fs::copy(&file_path, savepath).map_err(|e| format!("复制文件失败: {:?}", e))?;
+            log_info!("文件复制成功 [{}]: 保存路径={}", task_id, savepath);
+        }
+    }
 
     // 创建解压任务并添加到解压队列
     let extract_task = ExtractTask {

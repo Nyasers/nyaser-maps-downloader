@@ -62,68 +62,6 @@ pub fn get_middleware() -> Result<String, String> {
     Ok(html_content)
 }
 
-/// 下载函数 - 将地图下载任务添加到下载队列
-///
-/// 此函数接收一个URL和应用句柄，创建下载任务并将其添加到下载队列中，
-/// 同时向前端发送任务添加和队列更新的事件通知。
-///
-/// # 参数
-/// - `url`: 要下载的文件URL
-/// - `app_handle`: Tauri应用句柄，用于发送事件通知
-///
-/// # 返回值
-/// - 成功时返回包含成功信息的Ok
-/// - 失败时返回包含错误信息的Err
-
-/// 打开外部链接函数 - 在默认浏览器中打开指定的URL
-///
-/// # 参数
-/// - `url`: 要打开的URL
-///
-/// # 返回值
-/// - 成功时返回包含成功信息的Ok
-/// - 失败时返回包含错误信息的Err
-#[tauri::command]
-pub fn open_external_link(url: &str) -> Result<String, String> {
-    log_info!("接收到打开外部链接请求: URL={}", url);
-
-    // 在Windows上使用ShellExecuteA打开URL
-    #[cfg(target_os = "windows")]
-    {
-        use std::ffi::CString;
-        use winapi::um::shellapi::ShellExecuteA;
-        use winapi::um::winuser::SW_SHOW;
-
-        let operation = CString::new("open").unwrap();
-        let url_c = CString::new(url).unwrap();
-        let result = unsafe {
-            ShellExecuteA(
-                std::ptr::null_mut(),
-                operation.as_ptr(),
-                url_c.as_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                SW_SHOW,
-            )
-        };
-
-        if result as i32 > 32 {
-            log_info!("成功打开外部链接: URL={}", url);
-            Ok("链接已成功打开".to_string())
-        } else {
-            log_error!("打开外部链接失败: URL={}, 错误代码={:?}", url, result);
-            Err(format!("无法打开链接，错误代码: {:?}", result))
-        }
-    }
-
-    // 其他平台的实现可以在这里添加
-    #[cfg(not(target_os = "windows"))]
-    {
-        log_error!("当前平台不支持打开外部链接");
-        Err("当前平台不支持打开外部链接".to_string())
-    }
-}
-
 /// 打开文件管理器窗口
 ///
 /// # 参数
@@ -459,14 +397,15 @@ pub fn delete_nmd_file(file_name: String) -> Result<String, String> {
 ///
 /// # 参数
 /// - `url`: 要下载的文件URL
+/// - `path`: 下载完成后保存的文件路径
 /// - `app_handle`: Tauri应用句柄，用于发送事件通知
 ///
 /// # 返回值
 /// - 成功时返回包含成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 #[tauri::command(async)]
-pub async fn install(url: &str, app_handle: AppHandle) -> Result<String, String> {
-    log_info!("接收到下载请求: URL={}", url);
+pub async fn install(url: &str, path: &str, app_handle: AppHandle) -> Result<String, String> {
+    log_info!("接收到下载请求: URL={}, Path={}", url, path);
 
     // 锁定并获取目录管理器实例
     log_debug!("尝试锁定目录管理器...");
@@ -542,6 +481,7 @@ pub async fn install(url: &str, app_handle: AppHandle) -> Result<String, String>
     let task = DownloadTask {
         id: task_id.clone(),
         url: url.to_string(),
+        savepath: Some(path.to_string()),
         extract_dir: extract_dir,
         filename: Some(filename.clone()),
     };

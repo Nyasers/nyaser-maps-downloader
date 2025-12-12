@@ -83,7 +83,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::install,
             commands::get_middleware,
-            commands::open_external_link,
             commands::open_file_manager_window,
             commands::open_server_list_window,
             commands::get_nmd_files,
