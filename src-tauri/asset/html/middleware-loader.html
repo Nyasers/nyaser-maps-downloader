@@ -1,4 +1,4 @@
-<script id="nmd_loader">
+<script>
   !(function () {
     function replace() {
       const qrBtn = document.querySelectorAll('div.fileinfo > div:nth-child(3) > div > button')[1];
@@ -127,10 +127,7 @@
       setupObserver();
 
       try {
-        const loaderElement = document.getElementById('nmd_loader');
-        if (loaderElement && loaderElement.parentNode) {
-          loaderElement.parentNode.removeChild(loaderElement);
-        }
+        document.currentScript.parentNode.removeChild(document.currentScript);
       } catch { }
     }
   })();
