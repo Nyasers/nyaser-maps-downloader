@@ -35,6 +35,8 @@ pub struct DownloadTask {
     pub filename: Option<String>,
     /// 下载文件保存路径（可选，如未指定则不保存）
     pub savepath: Option<String>,
+    /// 是否仅保存文件，不进行解压（默认false）
+    pub saveonly: bool,
 }
 
 // 创建全局下载队列实例 - 使用lazy_static实现延迟初始化
@@ -61,13 +63,15 @@ pub async fn process_download_queue(app_handle: AppHandle) {
         let filename = task.filename.clone().unwrap_or("未知文件".to_string());
         let url = task.url.clone();
         let savepath = task.savepath.clone();
+        let saveonly = task.saveonly;
 
         log_info!(
-            "开始处理下载任务 [{}]: {} (URL: {}, 保存路径: {})",
+            "开始处理下载任务 [{}]: {} (URL: {}, 保存路径: {}, 仅保存: {})",
             task_id,
             filename,
             url,
-            savepath.as_deref().unwrap_or("未指定")
+            savepath.as_deref().unwrap_or("未指定"),
+            saveonly
         );
 
         // 将任务添加到全局活跃任务集合中
@@ -106,6 +110,7 @@ pub async fn process_download_queue(app_handle: AppHandle) {
                 &task_clone.url,
                 &task_clone.extract_dir,
                 savepath.as_deref(),
+                saveonly,
                 app_clone.clone(),
                 &task_clone.id,
             )
@@ -473,6 +478,7 @@ pub async fn download_and_extract(
     url: &str,
     extract_dir: &str,
     savepath: Option<&str>,
+    saveonly: bool,
     app_handle: AppHandle,
     task_id: &str,
 ) -> Result<String, String> {
@@ -510,7 +516,16 @@ pub async fn download_and_extract(
                 savepath
             );
             fs::copy(&file_path, savepath).map_err(|e| format!("复制文件失败: {:?}", e))?;
-            log_info!("文件复制成功 [{}]: 保存路径={}", task_id, savepath);
+            log_info!(
+                "文件复制成功 [{}]: 保存路径={}, 仅保存={}",
+                task_id,
+                savepath,
+                saveonly
+            );
+            if saveonly {
+                fs::remove_file(&file_path).map_err(|e| format!("删除临时文件失败: {:?}", e))?;
+                return Ok(savepath.to_string());
+            }
         }
     }
 

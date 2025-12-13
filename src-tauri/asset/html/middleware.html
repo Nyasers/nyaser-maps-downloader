@@ -561,17 +561,16 @@
       function removeTaskElement(taskId) {
         const task = activeTasks.get(taskId);
         if (task) {
+          activeTasks.delete(taskId);
+          // 同时从lastUpdateTimes中删除
+          if (typeof lastUpdateTimes !== 'undefined') {
+            lastUpdateTimes.delete(taskId);
+          }
           // 添加淡出动画
           task.element.style.opacity = '0';
           setTimeout(() => {
             if (task.element.parentNode) {
               task.element.parentNode.removeChild(task.element);
-            }
-            activeTasks.delete(taskId);
-
-            // 同时从lastUpdateTimes中删除
-            if (typeof lastUpdateTimes !== 'undefined') {
-              lastUpdateTimes.delete(taskId);
             }
 
             // 如果没有活动任务，隐藏容器
@@ -588,11 +587,12 @@
       }
 
       // 将下载链接传递给后端处理
-      async function handleDownloadLink(url, path = '') {
+      async function handleDownloadLink(url, savepath = '', saveonly = false) {
         try {
           let result = await window.__TAURI__.core.invoke('install', {
             url: url,
-            path: path
+            savepath: savepath,
+            saveonly: saveonly
           });
           return true;
         } catch (error) {
@@ -786,11 +786,11 @@
             console.log('Nyaser Maps Downloader: 成功修改按钮文本为"安装"');
           }
 
-          // 2. 尝试找到第二个目标按钮 - 复制链接按钮改为"保存并安装"
+          // 2. 尝试找到第二个目标按钮 - 复制链接按钮改为"下载并安装"
           const copyLinkButton = document.querySelector("div.fileinfo > div:nth-child(3) > div > button");
-          if (copyLinkButton && copyLinkButton.textContent !== '保存并安装') {
-            // 将按钮文本改为"保存并安装"
-            copyLinkButton.textContent = '保存并安装';
+          if (copyLinkButton && copyLinkButton.textContent !== '下载') {
+            // 将按钮文本改为"下载"
+            copyLinkButton.textContent = '下载';
 
             // 移除原有的点击事件监听器并创建新按钮
             const newButton = copyLinkButton.cloneNode(true);
@@ -802,22 +802,29 @@
               const linkElement = document.querySelector("div.fileinfo > div:nth-child(3) > div > a");
               if (linkElement && linkElement.href) {
                 try {
-                  console.log('Nyaser Maps Downloader: 点击保存并安装按钮，链接地址:', linkElement.href);
+                  console.log('Nyaser Maps Downloader: 点击下载按钮，链接地址:', linkElement.href);
                   const filename = getFilename(linkElement.href);
                   if (filename) {
                     console.log('Nyaser Maps Downloader: 提取到文件名:', filename);
                   } else {
                     throw new Error('Nyaser Maps Downloader: 从链接中提取文件名失败');
                   }
-                  const save = window.__TAURI__.dialog.save;
-                  const selected = await save({
+                  const dialog = window.__TAURI__.dialog;
+                  const savepath = await dialog.save({
                     title: '选择保存位置',
                     defaultPath: filename,
                     filters: [
                       { name: '7-zip Files', extensions: ['7z'] }
                     ]
                   });
-                  if (selected) await handleDownloadLink(linkElement.href, selected);
+                  if (savepath) {
+                    const saveonly = await dialog.confirm(`保存位置:\n${savepath}`, {
+                      title: '选择模式',
+                      okLabel: '仅保存',
+                      cancelLabel: '保存并安装'
+                    });
+                    await handleDownloadLink(linkElement.href, savepath, saveonly);
+                  }
                 } catch (e) {
                   console.error('Nyaser Maps Downloader: 处理点击事件时出错:', e.message, e.stack);
                 }
@@ -826,7 +833,7 @@
               }
             }, true); // 使用true参数在捕获阶段执行
 
-            console.log('Nyaser Maps Downloader: 成功修改复制链接按钮为"保存并安装"');
+            console.log('Nyaser Maps Downloader: 成功修改复制链接按钮为"下载"');
           }
         } catch (e) {
           console.error('Nyaser Maps Downloader: 修改按钮时出错:', e);
@@ -960,7 +967,7 @@
           const task = activeTasks.get(taskId);
           if (task && success) {
             // 更新任务状态为下载完成，准备解压
-            task.status.textContent = '等待解压';
+            task.status.textContent = '下载完成';
             task.progress.style.width = '100%';
             task.progressText.textContent = '100%';
 
@@ -971,14 +978,15 @@
             }
 
             // 在控制台输出下载完成信息
-            console.log('Nyaser Maps Downloader: 文件下载完成，准备解压:', message);
-          }
+            console.log('Nyaser Maps Downloader: 文件下载完成:', message);
 
-          // 刷新下载队列
-          window.__TAURI__.core.invoke('refresh_download_queue')
-            .catch(error => {
-              console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
-            });
+            if (task.saveonly) {
+              // 延迟3秒后移除任务显示
+              setTimeout(() => {
+                removeTaskElement(taskId);
+              }, 3e3);
+            }
+          }
         });
 
         // 监听解压开始事件
@@ -1000,39 +1008,8 @@
           }
         });
 
-        // 监听解压进度事件
-        const extractProgressUnlisten = listen('extract-progress', (event) => {
-          // 接收到解压进度事件
-          const { progress, filename, taskId, rawOutput } = event.payload || {};
-          if (!taskId) return; // 如果没有taskId，忽略此事件
-
-          // 对文件名进行URL解码
-          const decodedFilename = filename ? decodeURIComponent(filename) : '未知文件';
-
-          // 确保容器可见
-          downloadsContainer.style.display = 'flex';
-
-          // 获取任务元素
-          const task = activeTasks.get(taskId);
-          if (task) {
-            // 更新最后活动时间
-            lastUpdateTimes.set(taskId, Date.now());
-
-            // 更新进度信息
-            const progressPercent = progress.toFixed(1); // 保留一位小数
-            task.progress.style.width = `${progressPercent}%`;
-            task.progressText.textContent = `${progressPercent}%`;
-            task.status.textContent = '解压中';
-
-            // 更新原始输出信息
-            if (rawOutput && task.rawOutput) {
-              task.rawOutput.textContent = rawOutput;
-            }
-          }
-        });
-
         // 监听解压完成事件
-        const completeUnlisten = listen('extract-complete', (event) => {
+        const extractCompleteUnlisten = listen('extract-complete', (event) => {
           // 接收到解压完成事件
           const { filename, success, message, taskId } = event.payload || {};
           if (!taskId) return; // 如果没有taskId，忽略此事件
@@ -1369,7 +1346,7 @@
           progressUnlisten,
           downloadedUnlisten,
           extractStartUnlisten,
-          completeUnlisten,
+          extractCompleteUnlisten,
           taskStartUnlisten,
           downloadFailedUnlisten,
           taskAddUnlisten,

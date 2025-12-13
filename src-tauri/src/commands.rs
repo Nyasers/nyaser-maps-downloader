@@ -404,8 +404,13 @@ pub fn delete_nmd_file(file_name: String) -> Result<String, String> {
 /// - 成功时返回包含成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 #[tauri::command(async)]
-pub async fn install(url: &str, path: &str, app_handle: AppHandle) -> Result<String, String> {
-    log_info!("接收到下载请求: URL={}, Path={}", url, path);
+pub async fn install(
+    url: &str,
+    savepath: &str,
+    saveonly: bool,
+    app_handle: AppHandle,
+) -> Result<String, String> {
+    log_info!("接收到下载请求: URL={}, Path={}", url, savepath);
 
     // 锁定并获取目录管理器实例
     log_debug!("尝试锁定目录管理器...");
@@ -481,7 +486,8 @@ pub async fn install(url: &str, path: &str, app_handle: AppHandle) -> Result<Str
     let task = DownloadTask {
         id: task_id.clone(),
         url: url.to_string(),
-        savepath: Some(path.to_string()),
+        savepath: Some(savepath.to_string()),
+        saveonly: saveonly,
         extract_dir: extract_dir,
         filename: Some(filename.clone()),
     };
