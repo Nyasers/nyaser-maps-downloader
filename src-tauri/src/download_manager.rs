@@ -15,6 +15,7 @@ use tauri_plugin_dialog::MessageDialogKind;
 // 内部模块导入
 use crate::{
     aria2c::download_via_aria2,
+    commands::refresh_download_queue,
     dialog_manager::show_dialog,
     extract_manager::{start_extract_queue_manager, ExtractTask},
     init::is_app_shutting_down,
@@ -58,7 +59,7 @@ lazy_static::lazy_static! {
 /// - `app_handle`: Tauri应用句柄，用于发送事件通知
 pub async fn process_download_queue(app_handle: AppHandle) {
     // 处理单个下载任务的函数
-    let process_task_fn = move |task: DownloadTask| {
+    let process_task_fn = move |_task_id: String, task: &DownloadTask| {
         let task_id = task.id.clone();
         let filename = task.filename.clone().unwrap_or("未知文件".to_string());
         let url = task.url.clone();
@@ -147,6 +148,7 @@ pub async fn process_download_queue(app_handle: AppHandle) {
                         {
                             "taskId": task_clone.id,
                             "success": true,
+                            "saveonly": saveonly,
                             "message": message,
                             "filename": task_clone.filename.clone().unwrap_or("未知文件".to_string())
                         }
@@ -189,33 +191,7 @@ pub async fn process_download_queue(app_handle: AppHandle) {
                 );
             }
 
-            // 发送队列更新事件，确保前端正确更新队列显示
-            let (total_tasks, _queue_size, active_tasks_count, waiting_tasks) = {
-                let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
-                let size = queue.queue.len();
-                let active = queue.active_tasks.len();
-                let total = size + active;
-
-                // 构建等待任务列表（转换为可序列化的格式）
-                let tasks = queue.queue
-                .iter()
-                .map(|task| {
-                            serde_json::json!({"id": task.id, "url": task.url, "filename": task.filename})
-                        })
-                        .collect::<Vec<_>>();
-
-                (total, size, active, tasks)
-            };
-
-            let _ = app_clone.emit_to(
-                "main",
-                "download-queue-update",
-                &serde_json::json!({
-                    "queue": {"waiting_tasks": waiting_tasks,
-                    "total_tasks": total_tasks,
-                    "active_tasks": active_tasks_count}
-                }),
-            );
+            refresh_download_queue(app_clone.clone()).await.unwrap();
 
             // 在开始下一个任务前增加等待时间（1秒）
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
@@ -223,7 +199,7 @@ pub async fn process_download_queue(app_handle: AppHandle) {
     };
 
     // 获取任务ID的函数
-    let get_task_id_fn = |task: &DownloadTask| task.id.clone();
+    let _get_task_id_fn = |task: &DownloadTask| task.id.clone();
 
     // 检查是否应继续处理的函数
     let should_continue_fn = || !is_app_shutting_down();
@@ -232,7 +208,6 @@ pub async fn process_download_queue(app_handle: AppHandle) {
     process_queue(
         DOWNLOAD_QUEUE.clone(),
         process_task_fn,
-        get_task_id_fn,
         100, // 检查间隔时间（毫秒）
         should_continue_fn,
     )
@@ -279,7 +254,10 @@ pub fn save_download_queue() -> Result<(), String> {
         let queue = DOWNLOAD_QUEUE
             .lock()
             .map_err(|e| format!("无法获取下载队列锁: {:?}", e))?;
-        queue.queue.clone()
+        // 从tasks HashMap中获取完整的任务对象
+        queue.waiting_tasks.iter()
+            .filter_map(|task_id| queue.tasks.get(task_id).cloned())
+            .collect::<Vec<_>>()
     };
 
     // 获取完整的活跃任务信息
@@ -371,10 +349,10 @@ pub fn load_download_queue() -> Result<(), String> {
 
         // 添加所有任务
         for task in saved_queue.tasks {
-            queue.add_task(task);
+            queue.add_task(task.id.clone(), task);
         }
 
-        let loaded_tasks_count = queue.queue.len();
+        let loaded_tasks_count = queue.waiting_tasks.len();
 
         log_info!(
             "成功加载下载队列: 等待任务数={}, 总计需要重新下载的任务数={}",
@@ -404,60 +382,13 @@ pub fn process_download() -> Result<(), String> {
 
     let app_clone = app_handle.clone();
     tauri::async_runtime::spawn(async move {
-        update_download_queue_status(&app_clone);
+        let _ = refresh_download_queue(app_clone.clone());
         tauri::async_runtime::spawn(async move {
             log_debug!("下载队列处理线程已创建，准备开始处理队列");
             process_download_queue(app_clone).await;
         });
     });
     Ok(())
-}
-
-/// 更新下载队列状态 - 获取当前队列状态并向前端发送更新
-///
-/// 此函数会获取当前下载队列的状态（等待任务、总任务数和活跃任务数），
-/// 并向前端发送队列更新事件，用于刷新前端显示。
-///
-/// # 参数
-/// - `app_handle`: Tauri应用句柄，用于发送事件通知
-pub fn update_download_queue_status(app_handle: &AppHandle) {
-    log_info!("更新下载队列状态");
-
-    // 获取队列状态信息
-    let (total_tasks, active_tasks_count, waiting_tasks) = {
-        let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
-        let size = queue.queue.len();
-        let active = queue.active_tasks.len();
-        let total = size + active;
-
-        // 构建等待任务列表（转换为可序列化的格式）
-        let tasks = queue.queue
-                .iter()
-                .map(|task| {
-                    serde_json::json!({"id": task.id, "url": task.url, "filename": task.filename})
-                })
-                .collect::<Vec<_>>();
-
-        (total, active, tasks)
-    };
-
-    // 发送队列更新事件通知
-    let _ = app_handle.emit_to(
-        "main",
-        "download-queue-update",
-        &serde_json::json!({
-            "queue": {"waiting_tasks": waiting_tasks,
-                       "total_tasks": total_tasks,
-                       "active_tasks": active_tasks_count}
-        }),
-    );
-
-    log_debug!(
-        "下载队列状态更新完成: 等待任务数={}, 活跃任务数={}, 总任务数={}",
-        waiting_tasks.len(),
-        active_tasks_count,
-        total_tasks
-    );
 }
 
 /// 下载并解压文件 - 执行地图文件的下载和解压操作
@@ -551,7 +482,7 @@ pub async fn download_and_extract(
     let extract_task_clone = extract_task.clone();
 
     // 将解压任务添加到解压队列管理器
-    crate::extract_manager::EXTRACT_MANAGER.add_task(extract_task_clone);
+    crate::extract_manager::EXTRACT_MANAGER.add_task(extract_task_clone.id.clone(), extract_task_clone);
     log_debug!("解压任务 [{}] 添加到队列", extract_task_id);
 
     // 检查解压队列管理器是否已启动
@@ -584,7 +515,7 @@ pub async fn download_and_extract(
             .queue
             .lock()
             .unwrap();
-        if !queue.queue.is_empty() && queue.active_tasks.is_empty() {
+        if !queue.waiting_tasks.is_empty() && queue.active_tasks.is_empty() {
             log_warn!("解压队列有任务但无活跃任务，这由QueueManager自动处理");
         }
     };

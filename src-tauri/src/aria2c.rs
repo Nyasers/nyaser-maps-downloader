@@ -22,23 +22,22 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use tauri::{AppHandle, Emitter};
-use tokio::{runtime::Runtime, sync::oneshot};
+use tokio::runtime::Runtime;
 use uuid::Uuid;
 
 // 内部模块导入
 use crate::{
-    init::is_app_shutting_down, log_debug, log_error, log_info, log_utils::redirect_process_output,
-    log_warn, queue_manager::QueueManager,
+    commands::refresh_download_queue, init::is_app_shutting_down, log_debug, log_error, log_info,
+    log_utils::redirect_process_output, log_warn, queue_manager::QueueManager,
 };
 
 // 定义下载任务队列项结构
 #[derive(Debug)]
-enum PendingTask {
+pub enum PendingTask {
     Download {
         url: String,
         app_handle: AppHandle,
         task_id: String,
-        responder: oneshot::Sender<Result<String, String>>,
     },
 }
 
@@ -1043,32 +1042,70 @@ pub fn get_rpc_manager() -> Result<(), String> {
 }
 
 /// 处理队列中的单个待处理下载任务
-fn process_pending_task(task: PendingTask) {
+fn process_pending_task(_task_id: String, task: &PendingTask) {
     match task {
         PendingTask::Download {
             url,
             app_handle,
             task_id,
-            responder,
         } => {
             log_info!("处理待处理的下载任务: [{}] URL={}", task_id, url);
-
-            // 在新的异步任务中执行下载
+            let app_handle: AppHandle = app_handle.clone();
+            let url_clone = url.clone();
+            let task_id_clone = task_id.clone();
+            
+            // 使用异步运行时执行异步下载操作
             tauri::async_runtime::spawn(async move {
-                // 异步执行下载
-                let download_result = download_via_aria2(&url, app_handle, &task_id).await;
-
-                // 发送结果给等待的调用者
-                let _ = responder.send(download_result);
+                // 再次检查aria2c是否已初始化完成，避免重复添加任务到队列
+                if !ARIA2_INITIALIZED.load(Ordering::Relaxed) {
+                    log_warn!("[{}] aria2c后端仍未初始化完成，延迟处理任务", task_id_clone);
+                    // 发送等待中事件给前端
+                    let _ = app_handle.emit_to(
+                        "main",
+                        "download-waiting",
+                        &serde_json::json!({
+                            "taskId": task_id_clone,
+                            "url": url_clone,
+                            "message": "等待下载引擎初始化完成..."
+                        }),
+                    );
+                    return;
+                }
+                
+                let download_result = download_via_aria2(&url_clone, app_handle.clone(), &task_id_clone).await;
+                log_info!("下载任务完成: [{}] 结果={:?}", task_id_clone, download_result);
+                
+                // 处理下载结果
+                match download_result {
+                    Ok(file_path) => {
+                        // 下载成功，发送下载完成事件给main窗口
+                        let _ = app_handle.emit_to(
+                            "main",
+                            "download-complete",
+                            &serde_json::json!({
+                                "taskId": task_id_clone,
+                                "success": true,
+                                "message": "下载完成，正在准备解压",
+                                "filePath": file_path,
+                                "fileSize": std::fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0)
+                            }),
+                        );
+                    }
+                    Err(err) => {
+                        // 下载失败，发送下载失败事件给main窗口
+                        let _ = app_handle.emit_to(
+                            "main",
+                            "download-failed",
+                            &serde_json::json!({
+                                "taskId": task_id_clone,
+                                "success": false,
+                                "message": err
+                            }),
+                        );
+                    }
+                }
             });
         }
-    }
-}
-
-/// 获取任务ID的函数
-fn get_pending_task_id(task: &PendingTask) -> String {
-    match task {
-        PendingTask::Download { task_id, .. } => task_id.clone(),
     }
 }
 
@@ -1082,7 +1119,6 @@ pub fn start_pending_tasks_manager() {
     log_info!("启动待处理任务管理器...");
     PENDING_TASKS_MANAGER.start_processing(
         process_pending_task,
-        get_pending_task_id,
         500, // 检查间隔（毫秒）
         should_continue_processing,
     );
@@ -1394,15 +1430,11 @@ pub async fn download_via_aria2(
     if !ARIA2_INITIALIZED.load(Ordering::Relaxed) {
         log_info!("[{}] aria2c后端尚未初始化完成，将任务加入队列等待", task_id);
 
-        // 创建一个oneshot通道用于接收下载结果
-        let (sender, receiver) = oneshot::channel();
-
         // 将任务添加到待处理队列
-        PENDING_TASKS_MANAGER.add_task(PendingTask::Download {
+        PENDING_TASKS_MANAGER.add_task(task_id.to_string(), PendingTask::Download {
             url: url.to_string(),
             app_handle: app_handle.clone(),
             task_id: task_id.to_string(),
-            responder: sender,
         });
 
         log_info!("[{}] 任务已成功添加到队列，等待aria2c初始化完成", task_id);
@@ -1418,11 +1450,8 @@ pub async fn download_via_aria2(
             }),
         );
 
-        // 等待下载结果
-        match receiver.await {
-            Ok(result) => result,
-            Err(_) => Err("下载任务被取消或超时".to_string()),
-        }
+        // 返回错误，让调用者知道任务正在等待中，需要等待下载完成
+        Err("下载任务正在等待引擎初始化，请稍后重试".to_string())
     } else {
         // aria2c已初始化完成，直接执行下载
         // 获取统一的临时目录
@@ -1640,46 +1669,16 @@ pub async fn download_via_aria2(
                             );
                         }
 
-                        // 发送队列更新事件，确保前端正确更新队列显示
-                        let (total_tasks, active_tasks_count, waiting_tasks) = {
-                            let queue = (&*crate::download_manager::DOWNLOAD_QUEUE).lock().unwrap();
-                            let size = queue.queue.len();
-                            let active = queue.active_tasks.len();
-                            let total = size + active;
-
-                            // 构建等待任务列表（转换为可序列化的格式）
-                            let tasks = queue.queue
-                                    .iter()
-                                    .map(|task| {
-                                        serde_json::json!({"id": task.id, "url": task.url, "filename": task.filename})
-                                    })
-                                    .collect::<Vec<_>>();
-
-                            (total, active, tasks)
-                        };
-
-                        let _ = app_handle_for_events.emit_to(
-                            "main",
-                            "download-queue-update",
-                            &serde_json::json!({
-                                "queue": {"waiting_tasks": waiting_tasks,
-                                           "total_tasks": total_tasks,
-                                           "active_tasks": active_tasks_count}
-                            }),
-                        );
+                        let _ = tokio::task::block_in_place(async move || {
+                            refresh_download_queue(app_handle.clone()).await.unwrap();
+                        });
 
                         // 真正取消下载任务
                         let gid_clone = gid.clone();
-                        std::thread::spawn(move || {
-                            let rt = tokio::runtime::Runtime::new().unwrap_or_else(|e| {
-                                log_error!("创建运行时失败: {}", e);
-                                panic!("无法创建运行时");
-                            });
-                            rt.block_on(async {
-                                if let Err(e) = cancel_download(&gid_clone).await {
-                                    log_error!("取消下载任务失败: {}", e);
-                                }
-                            });
+                        let _ = tokio::task::block_in_place(async move || {
+                            if let Err(e) = cancel_download(&gid_clone).await {
+                                log_error!("取消下载任务失败: {}", e);
+                            }
                         });
 
                         // 根据取消原因返回不同的错误信息
@@ -2149,9 +2148,10 @@ pub async fn download_via_aria2(
 
                         // 定期更新下载队列状态，确保前端能正确显示任务栏
                         if consecutive_failures % 3 == 0 {
-                            let _ = crate::download_manager::update_download_queue_status(
-                                &app_handle_for_events,
-                            );
+                            let _ = {
+                                let app_handle: &AppHandle = &app_handle_for_events;
+                                let _ = refresh_download_queue(app_handle.clone());
+                            };
                         }
 
                         // 如果连续失败次数过多，认为下载失败

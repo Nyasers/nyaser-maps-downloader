@@ -55,7 +55,7 @@ pub fn find_download_task_by_id(
         .map_err(|e| format!("无法获取下载队列锁: {:?}", e))?;
 
     // 使用之前添加的find_task_by_id方法查找任务
-    if let Some(task) = queue.find_task_by_id(task_id, |t| t.id.clone()) {
+    if let Some(task) = queue.find_task_by_id(task_id) {
         // 找到任务，返回克隆的任务对象
         Ok(Some(task.clone()))
     } else {
@@ -70,7 +70,7 @@ pub fn find_download_task_by_id(
 /// 同时保留了优先处理没有aria2文件的任务的特殊逻辑。
 pub fn start_extract_queue_manager() {
     // 处理单个解压任务的函数
-    let process_task_fn = |task: ExtractTask| {
+    let process_task_fn = |_task_id: String, task: &ExtractTask| {
         let extract_task_id = task.id.clone();
         let download_task_id = task.download_task_id.clone();
         let file_path = task.file_path.clone();
@@ -83,6 +83,8 @@ pub fn start_extract_queue_manager() {
             file_path,
             extract_dir
         );
+
+        let task = task.clone();
 
         // 在新的异步任务中处理解压操作
         tauri::async_runtime::spawn(async move {
@@ -397,15 +399,12 @@ pub fn start_extract_queue_manager() {
     };
 
     // 获取任务ID的函数
-    let get_task_id_fn = |task: &ExtractTask| task.id.clone();
-
     // 检查是否应继续处理的函数
     let should_continue_fn = || !is_app_shutting_down(); // 应用关闭时停止处理
 
     // 使用QueueManager启动队列处理
     EXTRACT_MANAGER.start_processing(
         process_task_fn,
-        get_task_id_fn,
         1000, // 检查间隔时间（毫秒）
         should_continue_fn,
     );

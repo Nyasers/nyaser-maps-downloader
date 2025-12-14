@@ -713,6 +713,9 @@
                 if (bar) {
                   bar.remove();
                 }
+
+                // 更新下载队列
+                refreshDownloadQueue();
               }
             } catch { }
           }
@@ -961,34 +964,36 @@
         // 监听下载完成事件（仅表示下载完成，解压还未开始）
         const downloadedUnlisten = listen('download-complete', (event) => {
           // 接收到下载完成事件
-          const { filename, success, message, taskId } = event.payload || {};
+          const { filename, success, message, taskId, saveonly } = event.payload || {};
           if (!taskId) return; // 如果没有taskId，忽略此事件
 
           // 对文件名进行URL解码
           const decodedFilename = filename ? decodeURIComponent(filename) : '未知文件';
 
           // 获取任务元素
-          const task = activeTasks.get(taskId);
-          if (task && success) {
-            // 更新任务状态为下载完成，准备解压
-            task.status.textContent = '下载完成';
-            task.progress.style.width = '100%';
-            task.progressText.textContent = '100%';
+          const element = activeTasks.get(taskId);
+          if (element) {
+            if (success) {
+              // 更新任务状态为下载完成，准备解压
+              element.status.textContent = '下载完成';
+              element.progress.style.width = '100%';
+              element.progressText.textContent = '100%';
 
-            // 任务完成后移除取消按钮
-            if (task.cancelButton && task.cancelButton.parentNode) {
-              task.cancelButton.parentNode.removeChild(task.cancelButton);
-              console.log('Nyaser Maps Downloader: 下载完成，已移除取消按钮:', taskId);
+              // 任务完成后移除取消按钮
+              if (element.cancelButton && element.cancelButton.parentNode) {
+                element.cancelButton.parentNode.removeChild(element.cancelButton);
+                console.log('Nyaser Maps Downloader: 下载完成，已移除取消按钮:', taskId);
+              }
+
+              // 在控制台输出下载完成信息
+              console.log('Nyaser Maps Downloader: 文件下载完成:', message);
             }
 
-            // 在控制台输出下载完成信息
-            console.log('Nyaser Maps Downloader: 文件下载完成:', message);
-
-            if (task.saveonly) {
-              // 延迟3秒后移除任务显示
+            if (saveonly) {
+              // 延迟5秒后移除任务显示
               setTimeout(() => {
                 removeTaskElement(taskId);
-              }, 3e3);
+              }, 5000);
             }
           }
         });
@@ -1092,14 +1097,14 @@
           const { queue } = event.payload || {};
           if (!queue) return; // 如果没有queue信息，忽略此事件
 
-          const { waiting_tasks, total_tasks, active_tasks } = queue;
+          const { total_tasks, waiting_tasks, active_tasks } = queue;
 
           // 在控制台输出队列更新信息
-          console.log('Nyaser Maps Downloader: 队列更新 - 等待任务数:', waiting_tasks,
-            '总任务数:', total_tasks, '活跃任务数:', active_tasks);
+          console.log('Nyaser Maps Downloader: 队列更新 - 总任务数:', total_tasks, '等待任务:', waiting_tasks,
+            '活跃任务:', active_tasks);
 
           // 更新排队任务UI
-          updateQueueDisplay(waiting_tasks, total_tasks, active_tasks);
+          updateQueueDisplay(total_tasks, waiting_tasks, active_tasks);
         });
 
         // 监听目录更改事件
@@ -1114,7 +1119,7 @@
         });
 
         // 更新排队任务显示的函数
-        function updateQueueDisplay(waitingTasks, totalTasks, activeTasksCount) {
+        function updateQueueDisplay(totalTasks, waitingTasks, activeTask) {
           // 清空队列列表
           queueList.innerHTML = '';
 
@@ -1183,7 +1188,7 @@
             queueContainer.style.display = 'block';
 
             // 检查是否有活跃任务
-            const hasActiveTasks = activeTasksCount > 0 || activeTasks.size > 0;
+            const hasActiveTasks = activeTask.length > 0;
 
             // 添加每个排队任务
             waitingTasks.forEach((task, index) => {
@@ -1253,6 +1258,33 @@
             emptyElement.textContent = '队列为空';
             queueList.appendChild(emptyElement);
           }
+
+          activeTask.forEach((task, index) => {
+            console.log(task);
+            try {
+              // 接收到进度事件
+              const { filename, id } = task;
+              // 对文件名进行URL解码
+              const decodedFilename = filename ? decodeURIComponent(filename) : '未知文件';
+
+              // 确保容器可见
+              downloadsContainer.style.display = 'flex';
+
+              // 获取或创建任务元素
+              let element;
+              if (activeTasks.has(id)) {
+                element = activeTasks.get(id);
+              } else {
+                element = createTaskElement(id, decodedFilename, '正在下载...');
+                activeTasks.set(id, element);
+              }
+
+              // 更新最后活动时间
+              lastUpdateTimes.set(id, Date.now());
+            } catch (error) {
+              console.error(error);
+            }
+          });
         }
 
         // 监听游戏目录警告事件
@@ -1478,7 +1510,6 @@
         function onAllResourcesLoaded() {
           notifyLoaded();
           addLoadedIndicator();
-          refreshDownloadQueue();
         }
 
         // 检测文档加载状态

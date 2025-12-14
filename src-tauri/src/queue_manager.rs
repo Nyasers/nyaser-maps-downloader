@@ -1,6 +1,6 @@
 // 标准库导入
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -14,23 +14,26 @@ use crate::log_debug;
 /// 任务队列结构体 - 管理各类任务的队列和处理状态
 #[derive(Debug)]
 pub struct TaskQueue<T> {
-    /// 任务队列，按顺序存储待处理的任务
-    pub queue: VecDeque<T>,
+    /// 任务队列，按顺序存储待处理的任务ID
+    pub waiting_tasks: VecDeque<String>,
     /// 标记队列处理是否已启动
     pub processing_started: bool,
     /// 最大并行任务数
     pub max_concurrent_tasks: u32,
     /// 当前活跃任务的ID集合
-    pub active_tasks: HashSet<String>,
+    pub active_tasks: VecDeque<String>,
+    /// 所有任务的映射，存储完整的任务对象
+    pub tasks: HashMap<String, T>,
 }
 
 impl<T> Default for TaskQueue<T> {
     fn default() -> Self {
         Self {
-            queue: VecDeque::new(),
+            waiting_tasks: VecDeque::new(),
             processing_started: false,
             max_concurrent_tasks: 1,
-            active_tasks: HashSet::new(),
+            active_tasks: VecDeque::new(),
+            tasks: HashMap::new(),
         }
     }
 }
@@ -39,16 +42,18 @@ impl<T> TaskQueue<T> {
     /// 创建新的任务队列实例
     pub fn new(max_concurrent_tasks: u32) -> Self {
         Self {
-            queue: VecDeque::new(),
+            waiting_tasks: VecDeque::new(),
             processing_started: false,
             max_concurrent_tasks,
-            active_tasks: HashSet::new(),
+            active_tasks: VecDeque::new(),
+            tasks: HashMap::new(),
         }
     }
 
     /// 添加任务到队列
-    pub fn add_task(&mut self, task: T) {
-        self.queue.push_back(task);
+    pub fn add_task(&mut self, task_id: String, task: T) {
+        self.tasks.insert(task_id.clone(), task);
+        self.waiting_tasks.push_back(task_id);
     }
 
     /// 检查是否可以启动新任务
@@ -57,12 +62,11 @@ impl<T> TaskQueue<T> {
     }
 
     /// 从队列中取出一个任务并标记为活跃
-    pub fn take_next_task(&mut self, get_task_id: impl Fn(&T) -> String) -> Option<T> {
+    pub fn take_next_task(&mut self) -> Option<String> {
         if self.can_start_new_task() {
-            if let Some(task) = self.queue.pop_front() {
-                let task_id = get_task_id(&task);
-                self.active_tasks.insert(task_id);
-                Some(task)
+            if let Some(task_id) = self.waiting_tasks.pop_front() {
+                self.active_tasks.push_back(task_id.clone());
+                Some(task_id)
             } else {
                 None
             }
@@ -73,12 +77,16 @@ impl<T> TaskQueue<T> {
 
     /// 从活跃任务集合中移除任务
     pub fn remove_active_task(&mut self, task_id: &str) {
-        self.active_tasks.remove(task_id);
+        if let Some(index) = self.active_tasks.iter().position(|id| id == task_id) {
+            self.active_tasks.remove(index);
+        }
+        // 从任务映射中移除
+        self.tasks.remove(task_id);
     }
 
-    /// 通过ID查找等待队列中的任务
-    pub fn find_task_by_id(&self, task_id: &str, get_id_fn: impl Fn(&T) -> String) -> Option<&T> {
-        self.queue.iter().find(|task| get_id_fn(task) == task_id)
+    /// 通过ID查找任务
+    pub fn find_task_by_id(&self, task_id: &str) -> Option<&T> {
+        self.tasks.get(task_id)
     }
 }
 
@@ -92,8 +100,7 @@ impl<T> TaskQueue<T> {
 /// - `should_continue_fn`: 判断是否应继续处理的函数
 pub async fn process_queue<T: std::marker::Send + 'static>(
     queue: Arc<Mutex<TaskQueue<T>>>,
-    process_task_fn: impl Fn(T) -> (),
-    get_task_id_fn: impl Fn(&T) -> String + 'static,
+    process_task_fn: impl Fn(String, &T) -> (),
     sleep_duration: u64,
     should_continue_fn: impl Fn() -> bool + 'static,
 ) {
@@ -115,7 +122,7 @@ pub async fn process_queue<T: std::marker::Send + 'static>(
         // 检查是否有任务
         let has_tasks = {
             let q = queue.lock().unwrap();
-            !q.queue.is_empty() || !q.active_tasks.is_empty()
+            !q.waiting_tasks.is_empty() || !q.active_tasks.is_empty()
         };
 
         // 如果没有任务，等待一段时间后继续检查
@@ -126,27 +133,15 @@ pub async fn process_queue<T: std::marker::Send + 'static>(
 
         // 尝试启动新任务
         let maybe_task = {
-            let mut q = queue.lock().unwrap();
-            q.take_next_task(&get_task_id_fn)
+            queue.lock().unwrap().take_next_task()
         };
 
         // 如果有任务可以启动，处理该任务
-        if let Some(task) = maybe_task {
-            let task_id = get_task_id_fn(&task);
+        if let Some(task_id) = maybe_task {
             log_debug!("开始处理任务 [{}]", task_id);
 
             // 处理任务（非阻塞）
-            process_task_fn(task);
-
-            // 创建任务处理的异步任务
-            // queue_clone和task_id_clone在async move块中被使用
-            let _queue_clone = queue.clone(); // 前缀下划线表示有意未使用
-            let _task_id_clone = task_id.clone();
-
-            // 注意：这里假设任务处理是异步的，实际的任务完成处理应该在任务处理函数内部完成
-            // 或者在任务处理完成后调用此移除操作
-            // 以下代码仅作为示例
-            // queue_clone.lock().unwrap().remove_active_task(&task_id_clone);
+            process_task_fn(task_id.clone(), queue.lock().unwrap().find_task_by_id(&task_id).unwrap());
         }
 
         // 为了避免CPU占用过高，让出当前线程的执行权
@@ -169,15 +164,14 @@ impl<T: std::marker::Send + 'static> QueueManager<T> {
     }
 
     /// 添加任务到队列
-    pub fn add_task(&self, task: T) {
-        self.queue.lock().unwrap().add_task(task);
+    pub fn add_task(&self, task_id: String, task: T) {
+        self.queue.lock().unwrap().add_task(task_id, task);
     }
 
     /// 启动队列处理
     pub fn start_processing(
         &self,
-        process_task_fn: impl Fn(T) -> () + Send + 'static,
-        get_task_id_fn: impl Fn(&T) -> String + Send + Sync + 'static,
+        process_task_fn: impl Fn(String, &T) -> () + Send + 'static,
         sleep_duration: u64,
         should_continue_fn: impl Fn() -> bool + Send + 'static,
     ) {
@@ -188,7 +182,6 @@ impl<T: std::marker::Send + 'static> QueueManager<T> {
             process_queue(
                 queue_clone,
                 process_task_fn,
-                get_task_id_fn,
                 sleep_duration,
                 should_continue_fn,
             )

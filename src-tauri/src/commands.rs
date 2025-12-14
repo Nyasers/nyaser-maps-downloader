@@ -497,8 +497,8 @@ pub async fn install(
     log_debug!("尝试锁定下载队列并添加任务...");
     {
         let mut queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
-        queue.add_task(task);
-        log_info!("任务已添加到下载队列，当前队列长度: {}", queue.queue.len());
+        queue.add_task(task.id.clone(), task);
+        log_info!("任务已添加到下载队列，当前队列长度: {}", queue.waiting_tasks.len());
     }
 
     // 启动下载队列处理（确保队列处理逻辑正在运行）
@@ -520,7 +520,7 @@ pub async fn install(
     // 额外的安全检查：如果队列不为空，但活跃任务为0，可能表示处理逻辑出现问题
     {
         let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
-        if !queue.queue.is_empty() && queue.active_tasks.is_empty() && queue.processing_started {
+        if !queue.waiting_tasks.is_empty() && queue.active_tasks.is_empty() && queue.processing_started {
             log_warn!("下载队列有任务但无活跃任务，可能需要重置处理状态");
             // 释放锁后重新启动处理（避免死锁）
             drop(queue);
@@ -541,7 +541,7 @@ pub async fn install(
     log_debug!("获取当前队列信息...");
     let total_tasks = {
         let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
-        let size = queue.queue.len();
+        let size = queue.waiting_tasks.len();
         let active = queue.active_tasks.len();
         let total = size + active;
 
@@ -609,19 +609,22 @@ pub async fn cancel_download(
     let mut queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
 
     // 查找并移除队列中的任务
-    let original_len = queue.queue.len();
-    queue.queue.retain(|task| task.id != task_id);
+    let original_len = queue.waiting_tasks.len();
+    queue.waiting_tasks.retain(|task| task != task_id);
 
-    if original_len != queue.queue.len() {
+    if original_len != queue.waiting_tasks.len() {
         log_info!("任务 {} 已从等待队列中移除", task_id);
     }
 
     // 检查任务是否在活跃任务中
-    if queue.active_tasks.contains(task_id) {
+    let task_in_active = queue.active_tasks.iter().any(|task| task == task_id);
+    if task_in_active {
         log_info!("任务 {} 正在下载中，需要通过aria2c取消", task_id);
 
         // 从活跃任务中移除，避免重复处理
-        queue.active_tasks.remove(task_id);
+        if let Some(index) = queue.active_tasks.iter().position(|task| task == task_id) {
+            queue.active_tasks.remove(index);
+        }
 
         // 将任务ID和取消原因添加到取消下载请求列表
         if let Ok(mut cancel_requests) = crate::aria2c::CANCEL_DOWNLOAD_REQUESTS.lock() {
@@ -662,45 +665,55 @@ pub async fn cancel_download(
 pub async fn refresh_download_queue(app_handle: AppHandle) -> Result<String, String> {
     log_info!("接收到刷新下载队列请求");
 
-    // 获取队列状态信息
-    let (total_tasks, _queue_size, active_tasks_count, waiting_tasks) = {
+    // 发送队列更新事件通知
+    let (total_tasks, active_tasks, waiting_tasks) = {
         let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
-        let size = queue.queue.len();
-        let active = queue.active_tasks.len();
-        let total = size + active;
-
-        // 构建等待任务列表（转换为可序列化的格式）
-        let tasks = queue.queue
-                .iter()
-                .map(|task| {
+        let active = queue
+            .active_tasks
+            .iter()
+            .filter_map(|task_id| {
+                queue.tasks.get(task_id).map(|task| {
                     serde_json::json!({"id": task.id, "url": task.url, "filename": task.filename})
                 })
-                .collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
-        (total, size, active, tasks)
+        // 构建等待任务列表（转换为可序列化的格式）
+        let tasks = queue
+            .waiting_tasks
+            .iter()
+            .filter_map(|task_id| {
+                queue.tasks.get(task_id).map(|task| {
+                    serde_json::json!({"id": task.id, "url": task.url, "filename": task.filename})
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let total = active.len() + tasks.len();
+
+        (total, active, tasks)
     };
 
-    // 发送队列更新事件通知
     let _ = app_handle.emit_to(
         "main",
         "download-queue-update",
         &serde_json::json!({
             "queue": {"waiting_tasks": waiting_tasks,
                        "total_tasks": total_tasks,
-                       "active_tasks": active_tasks_count}
+                       "active_tasks": active_tasks}
         }),
     );
 
     log_info!(
         "刷新下载队列处理完成: 等待任务数={}, 活跃任务数={}, 总任务数={}",
         waiting_tasks.len(),
-        active_tasks_count,
+        active_tasks.len(),
         total_tasks
     );
     Ok(format!(
         "成功刷新下载队列，等待任务数: {}, 活跃任务数: {}",
         waiting_tasks.len(),
-        active_tasks_count
+        active_tasks.len()
     ))
 }
 
@@ -716,10 +729,10 @@ pub async fn cancel_all_downloads(app_handle: AppHandle) -> Result<String, Strin
         let mut queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
 
         // 记录等待队列中的任务数量
-        queue_tasks_count = queue.queue.len();
+        queue_tasks_count = queue.waiting_tasks.len();
 
         // 清空等待队列
-        queue.queue.clear();
+        queue.waiting_tasks.clear();
 
         // 获取活跃任务数量
         let active_tasks_count = queue.active_tasks.len();
@@ -731,42 +744,15 @@ pub async fn cancel_all_downloads(app_handle: AppHandle) -> Result<String, Strin
         );
     }
 
-    // 发送队列更新事件通知
-    let (total_tasks, _queue_size, active_tasks_count, waiting_tasks) = {
-        let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
-        let size = queue.queue.len();
-        let active = queue.active_tasks.len();
-        let total = size + active;
-
-        // 构建等待任务列表（转换为可序列化的格式）
-        let tasks = queue.queue
-                .iter()
-                .map(|task| {
-                    serde_json::json!({"id": task.id, "url": task.url, "filename": task.filename})
-                })
-                .collect::<Vec<_>>();
-
-        (total, size, active, tasks)
-    };
-
-    let _ = app_handle.emit_to(
-        "main",
-        "download-queue-update",
-        &serde_json::json!({
-            "queue": {"waiting_tasks": waiting_tasks,
-                       "total_tasks": total_tasks,
-                       "active_tasks": active_tasks_count}
-        }),
-    );
+    refresh_download_queue(app_handle).await?;
 
     log_info!(
-        "取消所有排队任务处理完成: 共取消 {} 个任务，保留 {} 个正在下载的任务",
+        "取消所有排队任务处理完成: 共取消 {} 个任务",
         queue_tasks_count,
-        active_tasks_count
     );
     Ok(format!(
-        "已成功取消所有排队任务，共取消 {} 个任务，保留 {} 个正在下载的任务",
-        queue_tasks_count, active_tasks_count
+        "已成功取消所有排队任务，共取消 {} 个任务",
+        queue_tasks_count
     ))
 }
 
