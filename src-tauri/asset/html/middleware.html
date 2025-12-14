@@ -578,12 +578,16 @@
               downloadsContainer.style.display = 'none';
             }
 
-            window.__TAURI__.core.invoke('refresh_download_queue')
-              .catch(error => {
-                console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
-              });
+            refreshDownloadQueue().catch(error => {
+              console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
+            });
           }, 300);
         }
+      }
+
+      // 刷新下载队列
+      async function refreshDownloadQueue() {
+        return window.__TAURI__.core.invoke('refresh_download_queue');
       }
 
       // 将下载链接传递给后端处理
@@ -1059,10 +1063,9 @@
           console.log('Nyaser Maps Downloader: 开始下载任务:', taskId, decodedFilename);
 
           // 刷新下载队列
-          window.__TAURI__.core.invoke('refresh_download_queue')
-            .catch(error => {
-              console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
-            });
+          refreshDownloadQueue().catch(error => {
+            console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
+          });
         });
 
         // 监听下载任务添加事件
@@ -1078,10 +1081,9 @@
           console.log('Nyaser Maps Downloader: 任务添加到队列:', taskId, decodedFilename);
 
           // 刷新下载队列
-          window.__TAURI__.core.invoke('refresh_download_queue')
-            .catch(error => {
-              console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
-            });
+          refreshDownloadQueue().catch(error => {
+            console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
+          });
         });
 
         // 监听下载队列更新事件
@@ -1132,7 +1134,7 @@
             try {
               console.log('Nyaser Maps Downloader: 刷新队列状态');
               // 请求后端刷新队列
-              await window.__TAURI__.core.invoke('refresh_download_queue');
+              await refreshDownloadQueue();
             } catch (error) {
               console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
               warningDisplay.textContent = '错误: 刷新队列失败 - ' + error.message;
@@ -1305,7 +1307,7 @@
           }
 
           // 刷新下载队列
-          window.__TAURI__.core.invoke('refresh_download_queue')
+          refreshDownloadQueue()
             .catch(error => {
               console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
             });
@@ -1333,7 +1335,7 @@
           }
 
           // 刷新下载队列
-          window.__TAURI__.core.invoke('refresh_download_queue')
+          refreshDownloadQueue()
             .catch(error => {
               console.error('Nyaser Maps Downloader: 刷新队列失败:', error);
             });
@@ -1476,6 +1478,7 @@
         function onAllResourcesLoaded() {
           notifyLoaded();
           addLoadedIndicator();
+          refreshDownloadQueue();
         }
 
         // 检测文档加载状态
