@@ -2,13 +2,13 @@ use regex::Regex;
 use urlencoding::decode;
 
 /// 检查URL是否为百度PCS链接
-fn is_baidupcs_link(url: &str) -> bool {
+pub fn is_baidupcs_link(url: &str) -> bool {
     let re = Regex::new(r"^https?://.+\.baidupcs\.com/file/.+$").unwrap();
     re.is_match(url)
 }
 
 /// 从百度PCS链接中提取文件名
-fn get_file_name_from_baidupcs(url: &str) -> Option<String> {
+pub fn get_file_name_from_baidupcs(url: &str) -> Option<String> {
     // 创建正则表达式匹配 &fin= 参数
     let re = Regex::new(r"&fin=([^&]+)").unwrap();
 
@@ -30,18 +30,17 @@ fn get_file_name_from_baidupcs(url: &str) -> Option<String> {
     None
 }
 
-fn get_file_name_from_pathname(url: &str) -> Option<String> {
+pub fn get_file_name_from_pathname(url: &str) -> Option<String> {
     let re = Regex::new(r"\/([^\/?]+)(\?.*)?$").unwrap();
-    match re.captures(url) {
-        Some(caps) => {
-            if let Some(name) = caps.get(1) {
-                return Some(name.as_str().to_string());
-            } else {
-                return None;
+
+    if let Some(caps) = re.captures(url) {
+        if let Some(name) = caps.get(1) {
+            if let Ok(decoded) = decode(name.as_str()) {
+                return Some(decoded.to_string());
             }
         }
-        _ => return None,
     }
+    None
 }
 
 pub fn get_file_name(url: &str) -> Option<String> {
