@@ -47,6 +47,42 @@ pub fn show_dialog(app_handle: &AppHandle, message: &str, kind: MessageDialogKin
     });
 }
 
+/// 显示确认对话框函数
+///
+/// 此函数显示一个确认对话框，返回用户的选择结果（true表示确认，false表示取消）。
+///
+/// # 参数
+/// - `app_handle`: Tauri应用句柄
+/// - `message`: 要显示的消息内容
+/// - `title`: 对话框标题
+///
+/// # 返回值
+/// - 用户点击确认返回true，点击取消返回false
+///
+/// # 示例
+/// ```
+/// let result = show_confirm_dialog(&app_handle, "确定要删除吗？", "确认删除");
+/// ```
+pub fn show_confirm_dialog(app_handle: &AppHandle, message: &str, title: &str) -> bool {
+    // 使用阻塞式消息对话框实现确认功能
+    // 锁定对话框状态
+    let mut dialog_guard = ACTIVE_DIALOG.lock().unwrap();
+    
+    // 创建阻塞式对话框并显示
+    // 使用默认的确认/取消按钮配置
+    let result = app_handle
+        .dialog()
+        .message(message)
+        .title(title)
+        .blocking_show();
+    
+    // 清除对话框状态
+    *dialog_guard = None;
+    
+    // 返回结果：直接返回用户的选择
+    result
+}
+
 /// 统一显示阻塞式消息对话框的函数
 ///
 /// 此函数用于需要等待用户响应的场景，如关键错误提示。
