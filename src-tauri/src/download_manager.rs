@@ -16,7 +16,7 @@ use tauri_plugin_dialog::MessageDialogKind;
 use crate::{
     aria2c::download_via_aria2,
     commands::refresh_download_queue,
-    dialog_manager::show_dialog,
+    dialog_manager::{show_confirm_dialog, show_dialog},
     extract_manager::{start_extract_queue_manager, ExtractTask},
     init::is_app_shutting_down,
     log_debug, log_error, log_info, log_warn,
@@ -255,7 +255,9 @@ pub fn save_download_queue() -> Result<(), String> {
             .lock()
             .map_err(|e| format!("无法获取下载队列锁: {:?}", e))?;
         // 从tasks HashMap中获取完整的任务对象
-        queue.waiting_tasks.iter()
+        queue
+            .waiting_tasks
+            .iter()
             .filter_map(|task_id| queue.tasks.get(task_id).cloned())
             .collect::<Vec<_>>()
     };
@@ -378,15 +380,55 @@ pub fn process_download() -> Result<(), String> {
     let app_handle = match &*binding {
         Some(handle) => handle,
         None => return Err("全局应用句柄未初始化".into()),
-    };
+    }
+    .clone();
 
-    let app_clone = app_handle.clone();
     tauri::async_runtime::spawn(async move {
-        let _ = refresh_download_queue(app_clone.clone());
-        tauri::async_runtime::spawn(async move {
-            log_debug!("下载队列处理线程已创建，准备开始处理队列");
-            process_download_queue(app_clone).await;
-        });
+        let mut queue = DOWNLOAD_QUEUE.lock().unwrap();
+        let has_pending_tasks = { queue.waiting_tasks.is_empty() } == false;
+        if has_pending_tasks {
+            let should_continue = show_confirm_dialog(
+                &app_handle,
+                queue
+                    .waiting_tasks
+                    .iter()
+                    .filter_map(|id| queue.tasks.get(id))
+                    .map(|task| {
+                        format!(
+                            "[{}|{}] {} -> {}",
+                            task.saveonly.then_some("只存").unwrap_or("安装"),
+                            crate::utils::is_baidupcs_link(&task.url)
+                                .then_some("直链")
+                                .unwrap_or("永链"),
+                            crate::utils::get_file_name(&task.url)
+                                .unwrap_or("未知文件".to_string()),
+                            task.savepath
+                                .as_ref()
+                                .filter(|p| !p.is_empty())
+                                .map(|p| p.as_str())
+                                .unwrap_or("不存")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    .as_str(),
+                "要继续上次未完成的任务吗?",
+            );
+
+            if !should_continue {
+                // 用户选择不继续，清空下载队列
+                queue.waiting_tasks.clear();
+                queue.tasks.clear();
+                log_info!("用户选择不继续上次下载，已清空下载队列");
+            } else {
+                let _ = refresh_download_queue(app_handle.clone());
+                tauri::async_runtime::spawn(async move {
+                    log_debug!("下载队列处理线程已创建，准备开始处理队列");
+                    process_download_queue(app_handle).await;
+                });
+                log_info!("用户选择继续上次未完成的下载任务");
+            }
+        }
     });
     Ok(())
 }
@@ -482,7 +524,8 @@ pub async fn download_and_extract(
     let extract_task_clone = extract_task.clone();
 
     // 将解压任务添加到解压队列管理器
-    crate::extract_manager::EXTRACT_MANAGER.add_task(extract_task_clone.id.clone(), extract_task_clone);
+    crate::extract_manager::EXTRACT_MANAGER
+        .add_task(extract_task_clone.id.clone(), extract_task_clone);
     log_debug!("解压任务 [{}] 添加到队列", extract_task_id);
 
     // 检查解压队列管理器是否已启动
