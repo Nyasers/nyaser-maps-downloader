@@ -387,21 +387,54 @@ pub fn process_download() -> Result<(), String> {
         let mut queue = DOWNLOAD_QUEUE.lock().unwrap();
         let has_pending_tasks = { queue.waiting_tasks.is_empty() } == false;
         if has_pending_tasks {
+            let queue = &mut queue;
+            let tasklist = queue
+                .waiting_tasks
+                .iter()
+                .filter_map(|id| queue.find_task_by_id(id))
+                .filter_map(|task| {
+                    crate::utils::get_file_name(&task.url)
+                        .and_then(|filename_str| {
+                            regex::Regex::new(r"([AB])\-(.+)\.7z")
+                                .ok()
+                                .and_then(move |regex| {
+                                    regex.captures(filename_str.as_str()).and_then(
+                                        move |captures| {
+                                            let map_type = captures.get(1)?.as_str().to_string();
+                                            let map_name = captures.get(2)?.as_str().to_string();
+                                            Some((map_type, map_name))
+                                        },
+                                    )
+                                })
+                        })
+                        .map(move |(map_type, map_name)| {
+                            let url = format!(
+                                "https://maps.nyase.ru/d/{}/{}-{}.7z",
+                                map_type, map_type, map_name
+                            );
+                            (
+                                DownloadTask {
+                                    id: task.id.clone(),
+                                    url,
+                                    extract_dir: task.extract_dir.clone(),
+                                    filename: task.filename.clone(),
+                                    savepath: task.savepath.clone(),
+                                    saveonly: task.saveonly,
+                                },
+                                map_type,
+                                map_name,
+                            )
+                        })
+                });
             let should_continue = show_confirm_dialog(
                 &app_handle,
-                queue
-                    .waiting_tasks
-                    .iter()
-                    .filter_map(|id| queue.tasks.get(id))
-                    .map(|task| {
+                tasklist
+                    .clone()
+                    .map(|(task, map_type, map_name)| {
                         format!(
-                            "[{}|{}] {} -> {}",
+                            "[{}] {} -> {}",
                             task.saveonly.then_some("只存").unwrap_or("安装"),
-                            crate::utils::is_baidupcs_link(&task.url)
-                                .then_some("直链")
-                                .unwrap_or("永链"),
-                            crate::utils::get_file_name(&task.url)
-                                .unwrap_or("未知文件".to_string()),
+                            format!("[三方{}] {}", map_type, map_name),
                             task.savepath
                                 .as_ref()
                                 .filter(|p| !p.is_empty())
@@ -414,19 +447,19 @@ pub fn process_download() -> Result<(), String> {
                     .as_str(),
                 "要继续上次未完成的任务吗?",
             );
-
-            if !should_continue {
-                // 用户选择不继续，清空下载队列
-                queue.waiting_tasks.clear();
-                queue.tasks.clear();
-                log_info!("用户选择不继续上次下载，已清空下载队列");
-            } else {
-                let _ = refresh_download_queue(app_handle.clone());
+            let tasks = tasklist
+                .map(|(task, _, _)| (task.clone().id, task.clone()))
+                .collect();
+            if should_continue {
+                log_info!("用户选择继续上次未完成的下载任务");
+                queue.replace_with(tasks);
                 tauri::async_runtime::spawn(async move {
                     log_debug!("下载队列处理线程已创建，准备开始处理队列");
+                    refresh_download_queue(app_handle.clone()).await.ok();
                     process_download_queue(app_handle).await;
                 });
-                log_info!("用户选择继续上次未完成的下载任务");
+            } else {
+                queue.clear();
             }
         }
     });
