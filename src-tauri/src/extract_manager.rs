@@ -55,7 +55,7 @@ pub fn find_download_task_by_id(
         .map_err(|e| format!("无法获取下载队列锁: {:?}", e))?;
 
     // 使用之前添加的find_task_by_id方法查找任务
-    if let Some(task) = queue.find_task_by_id(task_id) {
+    if let Some(task) = queue.find_task(task_id) {
         // 找到任务，返回克隆的任务对象
         Ok(Some(task.clone()))
     } else {

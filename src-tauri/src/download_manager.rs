@@ -387,11 +387,10 @@ pub fn process_download() -> Result<(), String> {
         let mut queue = DOWNLOAD_QUEUE.lock().unwrap();
         let has_pending_tasks = { queue.waiting_tasks.is_empty() } == false;
         if has_pending_tasks {
-            let queue = &mut queue;
             let tasklist = queue
                 .waiting_tasks
                 .iter()
-                .filter_map(|id| queue.find_task_by_id(id))
+                .filter_map(|id| queue.find_task(id))
                 .filter_map(|task| {
                     crate::utils::get_file_name(&task.url)
                         .and_then(|filename_str| {
@@ -452,14 +451,14 @@ pub fn process_download() -> Result<(), String> {
                 .collect();
             if should_continue {
                 log_info!("用户选择继续上次未完成的下载任务");
-                queue.replace_with(tasks);
+                queue.replace_tasks(tasks);
                 tauri::async_runtime::spawn(async move {
                     log_debug!("下载队列处理线程已创建，准备开始处理队列");
                     refresh_download_queue(app_handle.clone()).await.ok();
                     process_download_queue(app_handle).await;
                 });
             } else {
-                queue.clear();
+                queue.clear_tasks();
             }
         }
     });

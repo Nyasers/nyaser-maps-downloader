@@ -64,15 +64,15 @@ impl<T> TaskQueue<T> {
     }
 
     /// 清空队列中的所有任务
-    pub fn clear(&mut self) {
+    pub fn clear_tasks(&mut self) {
         self.waiting_tasks.clear();
         self.active_tasks.clear();
         self.tasks.clear();
     }
 
     /// 用新任务替换当前队列中的所有任务
-    pub fn replace_with(&mut self, tasks: Vec<(String, T)>) {
-        self.clear();
+    pub fn replace_tasks(&mut self, tasks: Vec<(String, T)>) {
+        self.clear_tasks();
         self.add_tasks(tasks);
     }
 
@@ -105,7 +105,7 @@ impl<T> TaskQueue<T> {
     }
 
     /// 通过ID查找任务
-    pub fn find_task_by_id(&self, task_id: &str) -> Option<&T> {
+    pub fn find_task(&self, task_id: &str) -> Option<&T> {
         self.tasks.get(task_id)
     }
 }
@@ -161,7 +161,7 @@ pub async fn process_queue<T: std::marker::Send + 'static>(
             log_debug!("开始处理任务 [{}]", task_id);
 
             // 处理任务（非阻塞）
-            process_task_fn(task_id.clone(), queue.lock().unwrap().find_task_by_id(&task_id).unwrap());
+            process_task_fn(task_id.clone(), queue.lock().unwrap().find_task(&task_id).unwrap());
         }
 
         // 为了避免CPU占用过高，让出当前线程的执行权
