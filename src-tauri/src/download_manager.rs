@@ -398,13 +398,11 @@ pub fn process_download() -> Result<(), String> {
                             regex::Regex::new(r"([AB])\-(.+)\.7z")
                                 .ok()
                                 .and_then(move |regex| {
-                                    regex.captures(filename).and_then(
-                                        |captures| {
-                                            let map_type = captures.get(1)?.as_str().to_string();
-                                            let map_name = captures.get(2)?.as_str().to_string();
-                                            Some((map_type, map_name))
-                                        },
-                                    )
+                                    regex.captures(filename).and_then(|captures| {
+                                        let map_type = captures.get(1)?.as_str().to_string();
+                                        let map_name = captures.get(2)?.as_str().to_string();
+                                        Some((map_type, map_name))
+                                    })
                                 })
                         })
                         .map(move |(map_type, map_name)| {
