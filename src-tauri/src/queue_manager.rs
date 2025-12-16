@@ -56,6 +56,26 @@ impl<T> TaskQueue<T> {
         self.waiting_tasks.push_back(task_id);
     }
 
+    /// 添加多个任务到队列
+    pub fn add_tasks(&mut self, tasks: Vec<(String, T)>) {
+        for (task_id, task) in tasks {
+            self.add_task(task_id, task);
+        }
+    }
+
+    /// 清空队列中的所有任务
+    pub fn clear(&mut self) {
+        self.waiting_tasks.clear();
+        self.active_tasks.clear();
+        self.tasks.clear();
+    }
+
+    /// 用新任务替换当前队列中的所有任务
+    pub fn replace_with(&mut self, tasks: Vec<(String, T)>) {
+        self.clear();
+        self.add_tasks(tasks);
+    }
+
     /// 检查是否可以启动新任务
     pub fn can_start_new_task(&self) -> bool {
         self.active_tasks.len() < self.max_concurrent_tasks as usize
