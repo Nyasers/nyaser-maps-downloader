@@ -393,12 +393,13 @@ pub fn process_download() -> Result<(), String> {
                 .filter_map(|id| queue.find_task(id))
                 .filter_map(|task| {
                     crate::utils::get_file_name(&task.url)
-                        .and_then(|filename_str| {
+                        .and_then(|filename| {
+                            let filename = filename.as_str();
                             regex::Regex::new(r"([AB])\-(.+)\.7z")
                                 .ok()
                                 .and_then(move |regex| {
-                                    regex.captures(filename_str.as_str()).and_then(
-                                        move |captures| {
+                                    regex.captures(filename).and_then(
+                                        |captures| {
                                             let map_type = captures.get(1)?.as_str().to_string();
                                             let map_name = captures.get(2)?.as_str().to_string();
                                             Some((map_type, map_name))
