@@ -28,7 +28,7 @@ use uuid::Uuid;
 // 内部模块导入
 use crate::{
     commands::refresh_download_queue, init::is_app_shutting_down, log_debug, log_error, log_info,
-    log_utils::redirect_process_output, log_warn, queue_manager::QueueManager,
+    log_utils::redirect_process_output, log_warn, queue_manager::QueueManager, utils::get_file_name,
 };
 
 // 定义下载任务队列项结构
@@ -1580,23 +1580,8 @@ pub async fn download_via_aria2(
             // 优化的下载进度监控配置
             let progress_interval = Duration::from_millis(800); // 提高监控频率到800ms
 
-            // 导入urlencoding库用于URL解码
-            use urlencoding::decode;
-
-            // 获取文件名（从URL中提取并进行URL解码）
-            let display_filename = {
-                let raw_filename = url_owned
-                    .split('/')
-                    .last()
-                    .unwrap_or("未知文件")
-                    .to_string();
-
-                // 使用urlencoding库进行解码
-                match decode(&raw_filename) {
-                    Ok(decoded) => decoded.into_owned(),
-                    Err(_) => raw_filename,
-                }
-            };
+            // 获取文件名
+            let display_filename = get_file_name(url_owned.as_str()).unwrap_or("未知文件".to_string());
 
             // 创建Tokio运行时用于监控下载进度
             let rt = match Runtime::new() {
