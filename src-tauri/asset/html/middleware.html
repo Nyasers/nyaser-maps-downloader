@@ -675,7 +675,7 @@
           const maxAttempts = 10;
           const checkInterval = setInterval(() => {
             attempts++;
-            if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke && window.__TAURI__.event && window.__TAURI__.event.listen) {
+            if (window.__TAURI__?.core?.invoke && window.__TAURI__?.event?.listen) {
               clearInterval(checkInterval);
               resolve(true);
             } else if (attempts >= maxAttempts) {
