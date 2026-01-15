@@ -140,17 +140,19 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
         }
     };
 
-    // 获取 nmd_data 目录路径
-    let nmd_data_path = match nmd_data_dir {
-        Some(data_dir) => std::path::PathBuf::from(data_dir),
-        None => {
-            log_error!("无法获取 nmd_data 目录");
-            return Err("无法获取 nmd_data 目录".to_string());
+    // 获取 maps 目录路径
+    let maps_dir = match DIR_MANAGER.lock() {
+        Ok(manager) => {
+            if manager.is_none() {
+                return Err("目录管理器未初始化".to_string());
+            }
+            manager.as_ref().unwrap().maps_dir()
+        }
+        Err(e) => {
+            log_error!("无法锁定目录管理器: {:?}", e);
+            return Err(format!("无法锁定目录管理器: {:?}", e));
         }
     };
-
-    // 构建 /maps 目录路径
-    let maps_dir = nmd_data_path.join("maps");
     log_info!("maps目录: {}", maps_dir.display());
 
     // 检查 /maps 目录是否存在
@@ -402,24 +404,13 @@ pub fn open_server_list_window(app_handle: AppHandle) -> Result<String, String> 
 pub fn delete_map_file(group_name: String, file_name: String) -> Result<String, String> {
     log_info!("接收到删除文件请求: 组={}, 文件={}", group_name, file_name);
 
-    // 获取 nmd_data 目录
-    let nmd_data_dir = match DIR_MANAGER.lock() {
+    // 获取 maps 目录
+    let maps_dir = match DIR_MANAGER.lock() {
         Ok(manager) => {
             if manager.is_none() {
                 return Err("目录管理器未初始化".to_string());
             }
-
-            // 获取目录路径并克隆它，避免生命周期问题
-            manager
-                .as_ref()
-                .unwrap()
-                .downloads_dir()
-                .parent()
-                .ok_or_else(|| {
-                    log_error!("无法获取 nmd_data 目录");
-                    "无法获取 nmd_data 目录".to_string()
-                })?
-                .to_path_buf()
+            manager.as_ref().unwrap().maps_dir()
         }
         Err(e) => {
             log_error!("无法锁定目录管理器: {:?}", e);
@@ -428,7 +419,7 @@ pub fn delete_map_file(group_name: String, file_name: String) -> Result<String, 
     };
 
     // 构建完整的文件路径：nmd_data/maps/group_name/file_name
-    let file_path = nmd_data_dir.join("maps").join(&group_name).join(&file_name);
+    let file_path = maps_dir.join(&group_name).join(&file_name);
 
     // 检查文件是否存在
     if !file_path.exists() {
@@ -480,24 +471,13 @@ pub fn delete_map_file(group_name: String, file_name: String) -> Result<String, 
 pub fn delete_group(group_name: String) -> Result<String, String> {
     log_info!("接收到删除分组请求: 组={}", group_name);
 
-    // 获取 nmd_data 目录
-    let nmd_data_dir = match DIR_MANAGER.lock() {
+    // 获取 maps 目录
+    let maps_dir = match DIR_MANAGER.lock() {
         Ok(manager) => {
             if manager.is_none() {
                 return Err("目录管理器未初始化".to_string());
             }
-
-            // 获取目录路径并克隆它，避免生命周期问题
-            manager
-                .as_ref()
-                .unwrap()
-                .downloads_dir()
-                .parent()
-                .ok_or_else(|| {
-                    log_error!("无法获取 nmd_data 目录");
-                    "无法获取 nmd_data 目录".to_string()
-                })?
-                .to_path_buf()
+            manager.as_ref().unwrap().maps_dir()
         }
         Err(e) => {
             log_error!("无法锁定目录管理器: {:?}", e);
@@ -506,7 +486,7 @@ pub fn delete_group(group_name: String) -> Result<String, String> {
     };
 
     // 构建完整的组目录路径：nmd_data/maps/group_name
-    let group_dir = nmd_data_dir.join("maps").join(&group_name);
+    let group_dir = maps_dir.join(&group_name);
 
     // 检查目录是否存在
     if !group_dir.exists() {
@@ -602,19 +582,9 @@ pub async fn install(
         log_info!("目录管理器初始化成功");
     }
 
-    // 获取解压目录路径 - 使用 nmd_data/maps 而不是 L4D2 的 addons 目录
+    // 获取解压目录路径 - 使用 nmd_data/maps
     log_debug!("尝试获取解压目录...");
-    let nmd_data_dir = manager
-        .as_ref()
-        .unwrap()
-        .downloads_dir()
-        .parent()
-        .ok_or_else(|| {
-            log_error!("无法获取 nmd_data 目录");
-            "无法获取 nmd_data 目录".to_string()
-        })?;
-
-    let maps_dir = nmd_data_dir.join("maps");
+    let maps_dir = manager.as_ref().unwrap().maps_dir();
     let extract_dir = maps_dir.to_string_lossy().to_string();
     log_info!("解压目录设置为: {}", extract_dir);
 
@@ -969,29 +939,25 @@ pub fn delete_file_symlink(link_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn mount_file(
-    group_name: String,
-    file_name: String,
-    app_handle: AppHandle,
-) -> Result<String, String> {
+pub fn mount_file(group_name: String, file_name: String) -> Result<String, String> {
     log_info!("接收到挂载文件请求: 组={}, 文件={}", group_name, file_name);
 
-    // 获取 nmd_data 目录
-    let nmd_data_dir = crate::config_manager::get_data_dir(app_handle.clone())?;
-
-    let nmd_data_path = match nmd_data_dir {
-        Some(data_dir) => std::path::PathBuf::from(data_dir),
-        None => {
-            log_error!("无法获取 nmd_data 目录");
-            return Err("无法获取 nmd_data 目录".to_string());
+    // 获取 maps 目录
+    let maps_dir = match DIR_MANAGER.lock() {
+        Ok(manager) => {
+            if manager.is_none() {
+                return Err("目录管理器未初始化".to_string());
+            }
+            manager.as_ref().unwrap().maps_dir()
+        }
+        Err(e) => {
+            log_error!("无法锁定目录管理器: {:?}", e);
+            return Err(format!("无法锁定目录管理器: {:?}", e));
         }
     };
 
     // 构建源文件路径
-    let source_path = nmd_data_path
-        .join("maps")
-        .join(&group_name)
-        .join(&file_name);
+    let source_path = maps_dir.join(&group_name).join(&file_name);
 
     if !source_path.exists() {
         return Err(format!("源文件不存在: {}", source_path.display()));
@@ -1085,22 +1051,25 @@ pub fn unmount_file(
 }
 
 #[tauri::command]
-pub fn mount_group(group_name: String, app_handle: AppHandle) -> Result<String, String> {
+pub fn mount_group(group_name: String) -> Result<String, String> {
     log_info!("接收到挂载组请求: 组={}", group_name);
 
-    // 获取 nmd_data 目录
-    let nmd_data_dir = crate::config_manager::get_data_dir(app_handle)?;
-
-    let nmd_data_path = match nmd_data_dir {
-        Some(data_dir) => std::path::PathBuf::from(data_dir),
-        None => {
-            log_error!("无法获取 nmd_data 目录");
-            return Err("无法获取 nmd_data 目录".to_string());
+    // 获取 maps 目录
+    let maps_dir = match DIR_MANAGER.lock() {
+        Ok(manager) => {
+            if manager.is_none() {
+                return Err("目录管理器未初始化".to_string());
+            }
+            manager.as_ref().unwrap().maps_dir()
+        }
+        Err(e) => {
+            log_error!("无法锁定目录管理器: {:?}", e);
+            return Err(format!("无法锁定目录管理器: {:?}", e));
         }
     };
 
     // 构建组目录路径
-    let group_dir = nmd_data_path.join("maps").join(&group_name);
+    let group_dir = maps_dir.join(&group_name);
 
     if !group_dir.exists() {
         return Err(format!("组目录不存在: {}", group_dir.display()));
@@ -1195,22 +1164,25 @@ pub fn mount_group(group_name: String, app_handle: AppHandle) -> Result<String, 
 }
 
 #[tauri::command]
-pub fn unmount_group(group_name: String, app_handle: AppHandle) -> Result<String, String> {
+pub fn unmount_group(group_name: String) -> Result<String, String> {
     log_info!("接收到卸载组请求: 组={}", group_name);
 
-    // 获取 nmd_data 目录
-    let nmd_data_dir = crate::config_manager::get_data_dir(app_handle)?;
-
-    let nmd_data_path = match nmd_data_dir {
-        Some(data_dir) => std::path::PathBuf::from(data_dir),
-        None => {
-            log_error!("无法获取 nmd_data 目录");
-            return Err("无法获取 nmd_data 目录".to_string());
+    // 获取 maps 目录
+    let maps_dir = match DIR_MANAGER.lock() {
+        Ok(manager) => {
+            if manager.is_none() {
+                return Err("目录管理器未初始化".to_string());
+            }
+            manager.as_ref().unwrap().maps_dir()
+        }
+        Err(e) => {
+            log_error!("无法锁定目录管理器: {:?}", e);
+            return Err(format!("无法锁定目录管理器: {:?}", e));
         }
     };
 
     // 构建组目录路径
-    let group_dir = nmd_data_path.join("maps").join(&group_name);
+    let group_dir = maps_dir.join(&group_name);
 
     // 获取 addons_dir
     let addons_dir = match DIR_MANAGER.lock() {

@@ -28,7 +28,8 @@ use uuid::Uuid;
 // 内部模块导入
 use crate::{
     commands::refresh_download_queue, init::is_app_shutting_down, log_debug, log_error, log_info,
-    log_utils::redirect_process_output, log_warn, queue_manager::QueueManager, utils::get_file_name,
+    log_utils::redirect_process_output, log_warn, queue_manager::QueueManager,
+    utils::get_file_name,
 };
 
 // 定义下载任务队列项结构
@@ -1053,7 +1054,7 @@ fn process_pending_task(_task_id: String, task: &PendingTask) {
             let app_handle: AppHandle = app_handle.clone();
             let url_clone = url.clone();
             let task_id_clone = task_id.clone();
-            
+
             // 使用异步运行时执行异步下载操作
             tauri::async_runtime::spawn(async move {
                 // 再次检查aria2c是否已初始化完成，避免重复添加任务到队列
@@ -1071,10 +1072,15 @@ fn process_pending_task(_task_id: String, task: &PendingTask) {
                     );
                     return;
                 }
-                
-                let download_result = download_via_aria2(&url_clone, app_handle.clone(), &task_id_clone).await;
-                log_info!("下载任务完成: [{}] 结果={:?}", task_id_clone, download_result);
-                
+
+                let download_result =
+                    download_via_aria2(&url_clone, app_handle.clone(), &task_id_clone).await;
+                log_info!(
+                    "下载任务完成: [{}] 结果={:?}",
+                    task_id_clone,
+                    download_result
+                );
+
                 // 处理下载结果
                 match download_result {
                     Ok(file_path) => {
@@ -1430,11 +1436,14 @@ pub async fn download_via_aria2(
         log_info!("[{}] aria2c后端尚未初始化完成，将任务加入队列等待", task_id);
 
         // 将任务添加到待处理队列
-        PENDING_TASKS_MANAGER.add_task(task_id.to_string(), PendingTask::Download {
-            url: url.to_string(),
-            app_handle: app_handle.clone(),
-            task_id: task_id.to_string(),
-        });
+        PENDING_TASKS_MANAGER.add_task(
+            task_id.to_string(),
+            PendingTask::Download {
+                url: url.to_string(),
+                app_handle: app_handle.clone(),
+                task_id: task_id.to_string(),
+            },
+        );
 
         log_info!("[{}] 任务已成功添加到队列，等待aria2c初始化完成", task_id);
 
@@ -1463,7 +1472,11 @@ pub async fn download_via_aria2(
         }
 
         let downloads_dir = manager.as_ref().unwrap().downloads_dir();
-        log_debug!("[{}] 获取下载目录: {}", task_id, downloads_dir.to_string_lossy());
+        log_debug!(
+            "[{}] 获取下载目录: {}",
+            task_id,
+            downloads_dir.to_string_lossy()
+        );
 
         // 获取文件扩展名（如果有）
         let extension = match url.split('/').last() {
@@ -1577,7 +1590,8 @@ pub async fn download_via_aria2(
             let progress_interval = Duration::from_millis(800); // 提高监控频率到800ms
 
             // 获取文件名
-            let display_filename = get_file_name(url_owned.as_str()).unwrap_or("未知文件".to_string());
+            let display_filename =
+                get_file_name(url_owned.as_str()).unwrap_or("未知文件".to_string());
 
             // 创建Tokio运行时用于监控下载进度
             let rt = match Runtime::new() {

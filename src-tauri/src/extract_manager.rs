@@ -10,9 +10,9 @@ use tauri_plugin_dialog::MessageDialogKind;
 
 // 内部模块导入
 use crate::{
-    dialog_manager::show_dialog, dir_manager::DIR_MANAGER,
-    download_manager::DOWNLOAD_QUEUE, init::is_app_shutting_down, log_debug, log_error, log_info,
-    log_utils::redirect_process_output, log_warn, queue_manager::QueueManager,
+    dialog_manager::show_dialog, dir_manager::DIR_MANAGER, download_manager::DOWNLOAD_QUEUE,
+    init::is_app_shutting_down, log_debug, log_error, log_info, log_utils::redirect_process_output,
+    log_warn, queue_manager::QueueManager,
 };
 
 /// 解压任务结构体 - 表示一个文件解压任务
@@ -453,7 +453,7 @@ pub fn release_7z_resources() -> Result<PathBuf, String> {
     let bin_dir = manager.as_ref().unwrap().bin_dir();
 
     // 检查资源是否已存在，如果存在则直接返回路径，避免重复释放
-    if check_7z_resources_exist(bin_dir) {
+    if check_7z_resources_exist(&bin_dir) {
         log_debug!("7z资源已存在，不需要重新释放");
         return Ok(bin_dir.join("7zG.exe"));
     }
@@ -712,7 +712,9 @@ pub fn extract_with_7zip(
             );
             Ok(format!(
                 "解压成功: {} 文件已解压到 {}，共解压 {} 个文件",
-                file_path, target_dir.display(), file_count
+                file_path,
+                target_dir.display(),
+                file_count
             ))
         } else {
             log_error!("解压失败: 解压目录为空，可能文件格式不支持");

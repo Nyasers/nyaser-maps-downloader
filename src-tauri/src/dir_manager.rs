@@ -27,6 +27,7 @@ pub struct DirManager {
     addons_dir: Option<PathBuf>,
     downloads_dir: PathBuf,
     bin_dir: PathBuf,
+    maps_dir: PathBuf,
 }
 
 impl DirManager {
@@ -40,6 +41,7 @@ impl DirManager {
             addons_dir: None,
             downloads_dir: PathBuf::new(),
             bin_dir: PathBuf::new(),
+            maps_dir: PathBuf::new(),
         })
     }
 
@@ -56,31 +58,35 @@ impl DirManager {
         std::fs::create_dir_all(&nmd_data_dir)
             .map_err(|e| format!("无法创建 nmd_data 目录: {:?}", e))?;
 
-        // 创建 nmd_data/downloads 目录
-        let downloads_dir = nmd_data_dir.join("downloads");
-        std::fs::create_dir_all(&downloads_dir)
-            .map_err(|e| format!("无法创建 nmd_data/downloads 目录: {:?}", e))?;
-
         // 创建 nmd_data/bin 目录
         let bin_dir = nmd_data_dir.join("bin");
-        std::fs::create_dir_all(&bin_dir)
-            .map_err(|e| format!("无法创建 nmd_data/bin 目录: {:?}", e))?;
+        std::fs::create_dir_all(&bin_dir).map_err(|e| format!("无法创建 bin 目录: {:?}", e))?;
+
+        // 创建 nmd_data/bin/cache 目录（作为下载目录）
+        let downloads_dir = bin_dir.join("cache");
+        std::fs::create_dir_all(&downloads_dir)
+            .map_err(|e| format!("无法创建 bin/cache 目录: {:?}", e))?;
+
+        // 创建 nmd_data/maps 目录
+        let maps_dir = nmd_data_dir.join("maps");
+        std::fs::create_dir_all(&maps_dir).map_err(|e| format!("无法创建 maps 目录: {:?}", e))?;
 
         Ok(Self {
             addons_dir: None,
             downloads_dir,
             bin_dir,
+            maps_dir,
         })
     }
 
-    /// 获取下载目录路径
-    pub fn downloads_dir(&self) -> &PathBuf {
-        &self.downloads_dir
+    /// 获取二进制文件目录路径
+    pub fn bin_dir(&self) -> PathBuf {
+        self.bin_dir.to_path_buf()
     }
 
-    /// 获取二进制文件目录路径
-    pub fn bin_dir(&self) -> &PathBuf {
-        &self.bin_dir
+    /// 获取下载目录路径
+    pub fn downloads_dir(&self) -> PathBuf {
+        self.downloads_dir.to_path_buf()
     }
 
     /// 设置 L4D2 addons 目录
@@ -91,6 +97,11 @@ impl DirManager {
     /// 获取 L4D2 addons 目录路径（如果已设置）
     pub fn addons_dir(&self) -> Option<&PathBuf> {
         self.addons_dir.as_ref()
+    }
+
+    /// 获取 maps 目录路径
+    pub fn maps_dir(&self) -> PathBuf {
+        self.maps_dir.to_path_buf()
     }
 }
 
@@ -313,7 +324,9 @@ pub fn get_l4d2_addons_dir() -> Result<String, String> {
         }
     }
 
-    let error_msg = "未找到 Left 4 Dead 2 游戏目录，请确认你已经在 Steam 中安装了 Left 4 Dead 2 游戏".to_string();
+    let error_msg =
+        "未找到 Left 4 Dead 2 游戏目录，请确认你已经在 Steam 中安装了 Left 4 Dead 2 游戏"
+            .to_string();
     log_error!("{}", error_msg);
     Err(error_msg)
 }
