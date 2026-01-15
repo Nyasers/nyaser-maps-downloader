@@ -294,7 +294,7 @@ async function batchDeleteFiles() {
   }
 
   const confirmed = await dialog.confirm(
-    `确定要删除选中的 ${selectedGroups.length} 个分组中的所有文件吗？`,
+    `确定要删除选中的 ${selectedGroups.length} 个分组吗？`,
     {
       title: "确认批量删除",
       okLabel: "确定",
@@ -306,32 +306,28 @@ async function batchDeleteFiles() {
     try {
       let deletedCount = 0;
       for (const groupKey of selectedGroups) {
-        // 获取分组内的所有文件项
-        const fileItems = document.querySelectorAll(
-          `.file-item[data-group="${groupKey}"]`
-        );
+        const groupName = decodeURIComponent(groupKey);
 
-        // 收集文件名
-        const fileNames = [];
-        fileItems.forEach((item) => {
-          const fileName = item.querySelector(".file-name").textContent;
-          fileNames.push(fileName);
-        });
-
-        // 逐个删除文件
-        for (const fileName of fileNames) {
-          await invoke("delete_map_file", {
-            groupName: decodeURIComponent(groupKey),
-            fileName,
+        // 先卸载分组
+        try {
+          await invoke("unmount_group", {
+            groupName,
           });
-          deletedCount++;
+        } catch (error) {
+          console.warn(`卸载分组 ${groupName} 失败:`, error);
         }
+
+        // 删除分组
+        await invoke("delete_group", {
+          groupName,
+        });
+        deletedCount++;
       }
 
       // 删除后刷新列表
       loadFileList();
 
-      await dialog.message(`已成功删除 ${deletedCount} 个文件！`, {
+      await dialog.message(`已成功删除 ${deletedCount} 个分组！`, {
         kind: "info",
         title: "删除成功",
       });
@@ -363,26 +359,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (deleteBtn) {
       const groupKey = deleteBtn.getAttribute("data-group");
 
-      // 直接获取分组内的所有文件项
-      const fileItems = document.querySelectorAll(
-        `.file-item[data-group="${groupKey}"]`
-      );
-
-      // 确保获取了所有文件
-      if (fileItems.length === 0) {
-        console.error("未找到分组中的文件");
-        return;
-      }
-
-      // 收集文件名
-      const fileNames = [];
-
-      // 遍历文件项来构建文件名列表
-      fileItems.forEach((item) => {
-        const fileName = item.querySelector(".file-name").textContent;
-        fileNames.push(fileName);
-      });
-
       // 获取分组的显示名称（用于对话框标题）
       const groupHeader = document.querySelector(
         `.group-header[data-group="${groupKey}"]`
@@ -393,11 +369,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // 显示确认对话框
       const confirmed = await dialog.confirm(
-        fileNames.length > 1
-          ? `确定要删除 ${groupDisplayName} 分组中的所有 ${fileNames.length} 个文件吗？`
-          : `确定要删除 "${groupDisplayName}" 吗？`,
+        `确定要删除 ${groupDisplayName} 分组吗？`,
         {
-          title: fileNames.length > 1 ? "确认删除分组" : "确认删除文件",
+          title: "确认删除分组",
           okLabel: "确定",
           cancelLabel: "取消",
         }
@@ -405,32 +379,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (confirmed) {
         try {
-          // 逐个删除文件
-          for (const fileName of fileNames) {
-            await invoke("delete_map_file", {
-              groupName: decodeURIComponent(groupKey),
-              fileName,
+          const groupName = decodeURIComponent(groupKey);
+
+          // 先卸载分组
+          try {
+            await invoke("unmount_group", {
+              groupName,
             });
+          } catch (error) {
+            console.warn(`卸载分组 ${groupName} 失败:`, error);
           }
+
+          // 删除分组
+          await invoke("delete_group", {
+            groupName,
+          });
 
           // 删除后刷新列表
           loadFileList();
 
           // 显示删除成功提示
-          if (fileNames.length > 1) {
-            await dialog.message(
-              `已成功删除 ${groupDisplayName} 分组中的 ${fileNames.length} 个文件！`,
-              {
-                kind: "info",
-                title: "删除成功",
-              }
-            );
-          } else {
-            await dialog.message(`已成功删除文件！`, {
-              kind: "info",
-              title: "删除成功",
-            });
-          }
+          await dialog.message(`已成功删除分组！`, {
+            kind: "info",
+            title: "删除成功",
+          });
         } catch (error) {
           console.error("删除文件失败:", error);
           const errorMsg = error.message || JSON.stringify(error);

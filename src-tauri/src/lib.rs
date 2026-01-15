@@ -142,6 +142,7 @@ pub fn run() {
             commands::open_server_list_window,
             commands::get_maps,
             commands::delete_map_file,
+            commands::delete_group,
             commands::cancel_download,
             commands::refresh_download_queue,
             commands::cancel_all_downloads,

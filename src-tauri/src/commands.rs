@@ -449,7 +449,85 @@ pub fn delete_map_file(group_name: String, file_name: String) -> Result<String, 
     }
 
     log_info!("文件已成功删除: {}", file_path.display());
+
+    // 检查并删除空文件夹
+    let group_dir = file_path.parent();
+    if let Some(dir) = group_dir {
+        if let Ok(mut entries) = std::fs::read_dir(dir) {
+            if entries.next().is_none() {
+                // 文件夹为空，删除它
+                if let Err(e) = std::fs::remove_dir(dir) {
+                    log_warn!("删除空文件夹失败: {}, 错误: {:?}", dir.display(), e);
+                } else {
+                    log_info!("已删除空文件夹: {}", dir.display());
+                }
+            }
+        }
+    }
+
     Ok(format!("文件 {} 已成功删除", file_name))
+}
+
+/// 删除指定的分组（在 /maps 目录下）
+///
+/// # 参数
+/// - `group_name`: 要删除的组名（子文件夹名）
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command]
+pub fn delete_group(group_name: String) -> Result<String, String> {
+    log_info!("接收到删除分组请求: 组={}", group_name);
+
+    // 获取 nmd_data 目录
+    let nmd_data_dir = match DIR_MANAGER.lock() {
+        Ok(manager) => {
+            if manager.is_none() {
+                return Err("目录管理器未初始化".to_string());
+            }
+
+            // 获取目录路径并克隆它，避免生命周期问题
+            manager
+                .as_ref()
+                .unwrap()
+                .downloads_dir()
+                .parent()
+                .ok_or_else(|| {
+                    log_error!("无法获取 nmd_data 目录");
+                    "无法获取 nmd_data 目录".to_string()
+                })?
+                .to_path_buf()
+        }
+        Err(e) => {
+            log_error!("无法锁定目录管理器: {:?}", e);
+            return Err(format!("无法锁定目录管理器: {:?}", e));
+        }
+    };
+
+    // 构建完整的组目录路径：nmd_data/maps/group_name
+    let group_dir = nmd_data_dir.join("maps").join(&group_name);
+
+    // 检查目录是否存在
+    if !group_dir.exists() {
+        log_error!("分组目录不存在: {}", group_dir.display());
+        return Err(format!("分组目录不存在: {}", group_name));
+    }
+
+    // 检查是否为目录
+    if !group_dir.is_dir() {
+        log_error!("指定的路径不是目录: {}", group_dir.display());
+        return Err(format!("指定的路径不是目录: {}", group_name));
+    }
+
+    // 删除目录及其内容
+    if let Err(e) = std::fs::remove_dir_all(&group_dir) {
+        log_error!("删除分组失败: {}, 错误: {:?}", group_dir.display(), e);
+        return Err(format!("删除分组失败: {:?}", e));
+    }
+
+    log_info!("分组已成功删除: {}", group_dir.display());
+    Ok(format!("分组 {} 已成功删除", group_name))
 }
 
 /// 下载函数 - 将地图下载任务添加到下载队列
