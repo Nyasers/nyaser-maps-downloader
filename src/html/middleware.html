@@ -429,6 +429,34 @@
 <script>
   !function () {
     try {
+      // 数据存储目录配置检查
+      async function checkDataDirConfig() {
+        try {
+          // 尝试获取数据存储目录
+          const { invoke } = window.__TAURI__.core;
+          const config = await invoke('read_config', { configName: 'config.json' });
+          
+          // 检查是否已配置数据存储目录
+          if (!config || !config.nmd_data) {
+            console.log('Nyaser Maps Downloader: 未配置数据存储目录，正在弹出选择对话框...');
+            // 弹出目录选择对话框
+            const selectedDir = await invoke('show_directory_dialog');
+            
+            // 保存选择的目录
+            await invoke('write_config', {
+              configName: 'config.json',
+              config: { ...config, nmd_data: selectedDir }
+            });
+            
+            console.log('Nyaser Maps Downloader: 已配置数据存储目录:', selectedDir);
+          } else {
+            console.log('Nyaser Maps Downloader: 数据存储目录已配置:', config.nmd_data);
+          }
+        } catch (error) {
+          console.error('Nyaser Maps Downloader: 配置数据存储目录失败:', error);
+        }
+      }
+
       // 创建下载任务容器和警告通知元素
       const downloadsContainer = document.createElement('div');
       downloadsContainer.className = 'nmd-container';
@@ -870,6 +898,9 @@
           console.error('Nyaser Maps Downloader: Tauri API未能完全初始化');
           return;
         }
+
+        // 检查数据存储目录配置
+        checkDataDirConfig();
 
         // 初始化完成后再启动观察器
         observers.map(f => f());

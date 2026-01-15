@@ -34,6 +34,7 @@ pub fn set_app_shutting_down(shutting_down: bool) {
 // 内部模块导入
 use crate::{
     aria2c::{cleanup_aria2c_resources, initialize_aria2c_backend},
+    config_manager::get_data_dir,
     dialog_manager::{show_blocking_dialog, show_dialog},
     dir_manager::{
         cleanup_temp_dir, get_global_temp_dir, get_l4d2_addons_dir, set_global_extract_dir,
@@ -158,8 +159,14 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
                 }),
             );
 
-            // 更新窗口标题，显示当前L4D2目录
-            update_window_title(&app_handle, &addons_dir);
+            // 读取数据存储目录
+            let title_text = match get_data_dir(&app_handle) {
+                Ok(Some(data_dir)) => data_dir,
+                _ => addons_dir.clone(),
+            };
+
+            // 更新窗口标题，优先显示数据存储目录
+            update_window_title(&app_handle, &title_text);
 
             // 设置全局解压目录，用于下载后解压文件
             set_global_extract_dir(&addons_dir)?;
@@ -178,7 +185,7 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(e) => {
             // 在退出前显示一个错误对话框，提示无法找到L4D2目录
-            show_blocking_dialog(&app.handle(), &e, MessageDialogKind::Error, "错误");
+            show_blocking_dialog(&app.handle(), &e, "错误", MessageDialogKind::Error);
 
             // 显示对话框后，立即退出应用程序
             exit(1);

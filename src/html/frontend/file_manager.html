@@ -424,13 +424,80 @@
         .select-all-btn:hover {
             background: #0b7dda;
         }
+
+        /* 数据存储目录配置样式 */
+        .data-dir-config {
+            background-color: #f0f8ff;
+            border: 1px solid #e0f0ff;
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .data-dir-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .data-dir-info label {
+            font-weight: 500;
+            color: #333;
+        }
+
+        #dataDir {
+            background-color: white;
+            padding: 6px 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            font-family: monospace;
+            font-size: 14px;
+            max-width: 400px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .change-dir-btn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .change-dir-btn:hover:not(:disabled) {
+            background: #0b7dda;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .change-dir-btn:disabled {
+            background: #cccccc;
+            color: #666666;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
     </style>
 </head>
 
 <body>
     <div class="container">
         <h1>Nyaser Maps Downloader - 文件管理器</h1>
-        <p>此窗口显示NMD解压的文件</p>
+        <div class="data-dir-config">
+            <div class="data-dir-info">
+                <label for="dataDir">数据存储目录：</label>
+                <span id="dataDir">正在加载...</span>
+            </div>
+            <button class="change-dir-btn" id="changeDirBtn">修改目录</button>
+        </div>
         <div class="action-buttons">
             <button class="refresh-btn" id="refreshBtn">刷新文件列表</button>
             <button class="select-all-btn" id="selectAllBtn">全选</button>
@@ -912,6 +979,68 @@
                 loadFileList();
             });
         }
+
+        // 数据存储目录管理
+        async function loadDataDir() {
+            try {
+                const config = await invoke('read_config', { configName: 'config.json' });
+                const dataDirElement = document.getElementById('dataDir');
+                if (config && config.nmd_data) {
+                    dataDirElement.textContent = config.nmd_data;
+                } else {
+                    dataDirElement.textContent = '未配置';
+                }
+            } catch (error) {
+                console.error('加载数据存储目录失败:', error);
+                document.getElementById('dataDir').textContent = '加载失败';
+            }
+        }
+
+        // 按钮锁定状态
+        let isChangingDir = false;
+
+        async function changeDataDir() {
+            // 检查是否已经在处理中
+            if (isChangingDir) return;
+            
+            // 获取按钮元素
+            const changeBtn = document.getElementById('changeDirBtn');
+            
+            try {
+                // 锁定按钮
+                isChangingDir = true;
+                changeBtn.disabled = true;
+                changeBtn.textContent = '处理中...';
+                
+                // 调用目录选择对话框
+                const selectedDir = await invoke('show_directory_dialog');
+                
+                // 保存新的目录配置
+                const config = await invoke('read_config', { configName: 'config.json' });
+                await invoke('write_config', {
+                    configName: 'config.json',
+                    config: { ...config, nmd_data: selectedDir }
+                });
+                
+                // 更新显示
+                document.getElementById('dataDir').textContent = selectedDir;
+            } catch (error) {
+                console.error('更改数据存储目录失败:', error);
+            } finally {
+                // 无论成功还是失败，都解锁按钮
+                isChangingDir = false;
+                changeBtn.disabled = false;
+                changeBtn.textContent = '修改目录';
+            }
+        }
+
+        // 初始化数据存储目录显示
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDataDir();
+            
+            // 添加修改目录按钮事件
+            document.getElementById('changeDirBtn').addEventListener('click', changeDataDir);
+        });
     </script>
 </body>
 

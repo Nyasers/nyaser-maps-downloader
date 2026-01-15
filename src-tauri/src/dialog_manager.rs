@@ -1,114 +1,120 @@
-// dialog_manager.rs 模块 - 提供统一的对话框管理功能
+// dialog_manager.rs 模块 - 处理各种对话框
 
-// 标准库导入
-use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Runtime};
+use tauri_plugin_dialog::{DialogExt, FileDialogBuilder, MessageDialogBuilder, MessageDialogKind};
 
-// 第三方库导入
-use tauri::AppHandle;
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-
-// 使用lazy_static创建全局变量，用于跟踪当前打开的对话框
-lazy_static::lazy_static! {
-    static ref ACTIVE_DIALOG: Arc<Mutex<Option<()>>> = Arc::new(Mutex::new(None));
-}
-
-/// 统一显示消息对话框的函数
-///
-/// 此函数确保在显示新的对话框前关闭先前打开的对话框，并使用统一的对话框样式。
-///
+/// 显示目录选择对话框
+/// 
 /// # 参数
 /// - `app_handle`: Tauri应用句柄
-/// - `message`: 要显示的消息内容
-/// - `kind`: 对话框类型（信息、警告、错误等）
-/// - `title`: 对话框标题
-///
-/// # 示例
-/// ```
-/// show_dialog(&app_handle, "操作成功", MessageDialogKind::Info, "成功");
-/// ```
-pub fn show_dialog(app_handle: &AppHandle, message: &str, kind: MessageDialogKind, title: &str) {
-    // 锁定对话框状态
-    let mut dialog_guard = ACTIVE_DIALOG.lock().unwrap();
-
-    // 如果已有对话框打开，会在新对话框显示前关闭（这里通过重新赋值实现）
-    *dialog_guard = Some(());
-
-    // 创建对话框构建器
-    let dialog_builder = app_handle.dialog().message(message).kind(kind).title(title);
-
-    // 保存对话框状态的引用
-    let dialog_guard_clone = Arc::clone(&ACTIVE_DIALOG);
-
-    // 显示对话框，并在关闭时更新状态
-    dialog_builder.show(move |_| {
-        // 对话框关闭时，清除活动状态
-        let mut dialog_guard = dialog_guard_clone.lock().unwrap();
-        *dialog_guard = None;
-    });
-}
-
-/// 显示确认对话框函数
-///
-/// 此函数显示一个确认对话框，返回用户的选择结果（true表示确认，false表示取消）。
-///
-/// # 参数
-/// - `app_handle`: Tauri应用句柄
-/// - `message`: 要显示的消息内容
-/// - `title`: 对话框标题
-///
+/// 
 /// # 返回值
-/// - 用户点击确认返回true，点击取消返回false
-///
-/// # 示例
-/// ```
-/// let result = show_confirm_dialog(&app_handle, "确定要删除吗？", "确认删除");
-/// ```
-pub fn show_confirm_dialog(app_handle: &AppHandle, message: &str, title: &str) -> bool {
-    // 使用阻塞式消息对话框实现确认功能
-    // 锁定对话框状态
-    let mut dialog_guard = ACTIVE_DIALOG.lock().unwrap();
+/// - 成功时返回用户选择的目录路径
+/// - 失败时返回包含错误信息的Err(String)
+#[tauri::command(async)]
+pub async fn show_directory_dialog<R: Runtime>(app_handle: AppHandle<R>) -> Result<String, String> {
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::oneshot;
     
-    // 创建阻塞式对话框并显示
-    // 使用默认的确认/取消按钮配置
-    let result = app_handle
-        .dialog()
-        .message(message)
-        .title(title)
-        .blocking_show();
+    // 创建一个oneshot通道用于传递结果
+    let (tx, rx) = oneshot::channel();
+    let tx = Arc::new(Mutex::new(Some(tx)));
     
-    // 清除对话框状态
-    *dialog_guard = None;
+    let dialog = app_handle.dialog().clone();
     
-    // 返回结果：直接返回用户的选择
-    result
+    // 在后台线程中运行对话框，避免阻塞UI
+    std::thread::spawn(move || {
+        FileDialogBuilder::new(dialog)
+            .set_title("选择数据存储目录")
+            .pick_folder(move |path| {
+                // 使用Mutex和Option确保只发送一次结果
+                if let Ok(mut guard) = tx.lock() {
+                    if let Some(tx) = guard.take() {
+                        // 忽略发送错误，因为接收端可能已关闭
+                        let _ = tx.send(path);
+                    }
+                }
+            });
+    });
+    
+    // 异步等待结果
+    let result = rx.await.map_err(|_| "接收结果失败".to_string())?;
+    
+    match result {
+        Some(path) => {
+            // 将FilePath转换为字符串
+            Ok(path.to_string())
+        },
+        None => {
+            // 用户取消了选择
+            Err("用户取消了目录选择".to_string())
+        }
+    }
 }
 
-/// 统一显示阻塞式消息对话框的函数
-///
-/// 此函数用于需要等待用户响应的场景，如关键错误提示。
-/// 由于是阻塞式调用，它会自动确保一次只显示一个对话框。
-///
+/// 显示错误对话框
+/// 
 /// # 参数
 /// - `app_handle`: Tauri应用句柄
-/// - `message`: 要显示的消息内容
-/// - `kind`: 对话框类型（信息、警告、错误等）
-/// - `title`: 对话框标题
-///
-/// # 示例
-/// ```
-/// show_blocking_dialog(&app_handle, "致命错误，程序将退出", MessageDialogKind::Error, "错误");
-/// ```
-pub fn show_blocking_dialog(
-    app_handle: &AppHandle,
-    message: &str,
-    kind: MessageDialogKind,
-    title: &str,
-) {
-    // 阻塞式对话框会自动确保一次只显示一个
-    app_handle
-        .dialog()
-        .message(message)
+/// - `message`: 错误信息
+/// 
+/// # 返回值
+/// - 成功时返回Ok(())
+pub fn show_dialog<R: Runtime>(app_handle: &AppHandle<R>, message: &str, kind: MessageDialogKind, title: &str) {
+    MessageDialogBuilder::new(app_handle.dialog().clone(), title, message)
         .kind(kind)
-        .title(title)
-        .blocking_show();
+        .show(|_| {});
+}
+
+/// 显示阻塞式对话框
+/// 
+/// # 参数
+/// - `app_handle`: Tauri应用句柄
+/// - `message`: 对话框消息
+/// - `title`: 对话框标题
+/// - `kind`: 对话框类型
+/// 
+/// # 返回值
+/// - 成功时返回Ok(())
+pub fn show_blocking_dialog<R: Runtime>(app_handle: &AppHandle<R>, message: &str, title: &str, kind: MessageDialogKind) {
+    // 在Tauri 2.0中，MessageDialogBuilder没有show_blocking方法，
+    // 我们使用show方法并等待结果
+    use std::sync::mpsc;
+    
+    let (tx, rx) = mpsc::channel();
+    
+    MessageDialogBuilder::new(app_handle.dialog().clone(), title, message)
+        .kind(kind)
+        .show(move |_| {
+            tx.send(()).unwrap();
+        });
+    
+    // 等待对话框关闭
+    rx.recv().unwrap();
+}
+
+/// 显示确认对话框
+/// 
+/// # 参数
+/// - `app_handle`: Tauri应用句柄
+/// - `message`: 对话框消息
+/// - `title`: 对话框标题
+/// 
+/// # 返回值
+/// - 成功时返回用户的选择结果
+pub fn show_confirm_dialog<R: Runtime>(app_handle: &AppHandle<R>, message: &str, title: &str) -> bool {
+    // 在Tauri 2.0中，MessageDialogBuilder没有show_blocking方法，
+    // 我们使用show方法并等待结果
+    use std::sync::mpsc;
+    
+    let (tx, rx) = mpsc::channel();
+    
+    MessageDialogBuilder::new(app_handle.dialog().clone(), title, message)
+        .kind(MessageDialogKind::Info)
+        .show(move |result| {
+            tx.send(result).unwrap();
+        });
+    
+    // 等待并返回结果
+    rx.recv().unwrap()
 }

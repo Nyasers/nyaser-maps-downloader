@@ -1,11 +1,12 @@
 // 引入 Tauri 相关模块
-use tauri::{AppHandle, Emitter, Manager, Url};
+use tauri::{http::Response, AppHandle, Emitter, Manager, Url};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_updater::UpdaterExt;
 
 // 导入子模块
 mod aria2c;
 mod commands;
+mod config_manager;
 mod dialog_manager;
 mod dir_manager;
 mod download_manager;
@@ -56,6 +57,52 @@ fn handle_deep_link(app: AppHandle, args: Vec<String>) {
     }
 }
 
+// 自定义协议处理函数，用于处理asset://请求
+fn asset_protocol_handler<T: tauri::Runtime>(
+    _context: tauri::UriSchemeContext<'_, T>,
+    request: tauri::http::Request<Vec<u8>>,
+) -> tauri::http::Response<Vec<u8>> {
+    // 获取请求的路径，去除协议前缀
+    let path = request.uri().path().trim_start_matches('/');
+    log_info!("asset协议请求路径: {}", path);
+
+    // 构建asset目录路径
+    let asset_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("asset");
+    let file_path = asset_path.join(path);
+    log_info!("asset协议请求的完整文件路径: {:?}", file_path);
+
+    // 读取文件内容并返回响应
+    match std::fs::read(&file_path) {
+        Ok(content) => {
+            // 根据文件扩展名设置Content-Type
+            let content_type = match file_path.extension().and_then(|e| e.to_str()) {
+                Some("html") => "text/html",
+                Some("js") => "application/javascript",
+                Some("css") => "text/css",
+                Some("json") => "application/json",
+                Some("png") => "image/png",
+                Some("jpg") | Some("jpeg") => "image/jpeg",
+                Some("gif") => "image/gif",
+                _ => "text/plain",
+            };
+
+            Response::builder()
+                .status(200)
+                .header("Content-Type", content_type)
+                .body(content)
+                .unwrap()
+        }
+        Err(error) => {
+            log_error!("asset协议请求文件失败: {:?}", error);
+            Response::builder()
+                .status(404)
+                .header("Content-Type", "text/plain")
+                .body("Not Found".as_bytes().to_vec())
+                .unwrap()
+        }
+    }
+}
+
 // 主入口函数
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -80,6 +127,9 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        // 注册自定义asset协议
+        .register_uri_scheme_protocol("asset", asset_protocol_handler)
         .invoke_handler(tauri::generate_handler![
             commands::install,
             commands::get_middleware,
@@ -92,6 +142,10 @@ pub fn run() {
             commands::cancel_all_downloads,
             commands::frontend_loaded,
             commands::deep_link_ready,
+            config_manager::read_config,
+            config_manager::write_config,
+            config_manager::delete_config,
+            dialog_manager::show_directory_dialog,
         ])
         // 处理不同窗口的关闭请求
         .on_window_event(|window, event| match event {
