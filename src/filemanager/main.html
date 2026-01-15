@@ -46,15 +46,21 @@
           </div>
           <div class="group-info">{{displayGroupName}}</div>
           <div class="group-stats">{{fileCount}} 个文件 · {{totalSize}}</div>
-          <div class="group-actions"></div>
+          <div class="group-actions">
+            <button
+              class="group-mount-btn {{groupMountBtnClass}}"
+              data-group="{{groupKey}}"
+              data-mounted="{{groupMounted}}"
+            >
+              {{groupMountBtnText}}
+            </button>
+          </div>
           <button class="delete-btn group-delete-btn" data-group="{{groupKey}}">
             删除
           </button>
         </div>
         <div class="group-content" id="{{groupId}}">
-          <div class="group-files">
-            <!-- 文件项将动态插入这里 -->
-          </div>
+          <div class="group-files"></div>
         </div>
       </div>
     </template>
@@ -63,6 +69,11 @@
       <div class="file-item" data-group="{{groupKey}}">
         <div class="file-name">{{displayName}}</div>
         <div class="file-size">{{fileSize}}</div>
+        <div class="file-mount-status">
+          <span class="mount-indicator {{mountStatusClass}}"
+            >{{mountStatusText}}</span
+          >
+        </div>
       </div>
     </template>
   </body>

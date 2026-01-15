@@ -161,9 +161,10 @@ pub fn delete_config(app_handle: AppHandle, config_name: &str) -> Result<String,
 /// # 返回值
 /// - 成功时返回包含数据存储目录的Ok(Option<String>)
 /// - 失败时返回包含错误信息的Err(String)
-pub fn get_data_dir(app_handle: &AppHandle) -> Result<Option<String>, String> {
+#[tauri::command]
+pub fn get_data_dir(app_handle: AppHandle) -> Result<Option<String>, String> {
     // 读取配置文件
-    let config = read_config(app_handle.clone(), "config.json")?;
+    let config = read_config(app_handle, "config.json")?;
     
     // 检查是否存在nmd_data配置
     if let Some(nmd_data) = config.get("nmd_data") {

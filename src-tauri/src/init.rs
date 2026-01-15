@@ -116,7 +116,7 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
     *GLOBAL_APP_HANDLE.write().unwrap() = Some(app_handle.clone());
 
     // 读取数据存储目录配置
-    let nmd_data_dir = get_data_dir(&app_handle)?;
+    let nmd_data_dir = get_data_dir(app_handle.clone())?;
 
     // 初始化目录管理器
     let dir_manager = match nmd_data_dir {
@@ -206,7 +206,7 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
 
             // 更新窗口标题，优先显示数据存储目录
             log_info!("更新窗口标题: {}", title_text);
-            update_window_title(&app_handle, &title_text);
+            update_window_title(&app_handle.clone(), &title_text);
 
             // 设置全局 L4D2 addons 目录，用于后续可能的操作
             log_info!("设置全局 L4D2 addons 目录: {}", addons_dir);

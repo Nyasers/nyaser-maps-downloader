@@ -14,6 +14,7 @@ mod extract_manager;
 mod init;
 mod log_utils;
 mod queue_manager;
+mod symlink_manager;
 mod utils;
 
 // 自定义协议处理函数，用于处理asset://请求
@@ -146,6 +147,13 @@ pub fn run() {
             commands::cancel_all_downloads,
             commands::frontend_loaded,
             commands::deep_link_ready,
+            commands::get_file_symlinks,
+            commands::create_file_symlink,
+            commands::delete_file_symlink,
+            commands::mount_file,
+            commands::unmount_file,
+            commands::mount_group,
+            commands::unmount_group,
             config_manager::read_config,
             config_manager::write_config,
             config_manager::delete_config,

@@ -1,5 +1,9 @@
 // commands.rs 模块 - 定义应用程序的Tauri命令，处理前端与后端的通信
 
+// 标准库导入
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 // 第三方库导入
 use serde_json;
 use tauri::{AppHandle, Emitter, Manager};
@@ -100,7 +104,7 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
     log_info!("接收到获取maps文件列表请求");
 
     // 尝试从配置文件读取 nmd_data 目录
-    let nmd_data_dir = crate::config_manager::get_data_dir(&app_handle)?;
+    let nmd_data_dir = crate::config_manager::get_data_dir(app_handle.clone())?;
 
     // 初始化目录管理器
     match DIR_MANAGER.lock() {
@@ -109,7 +113,9 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
                 // 根据配置创建目录管理器
                 let dir_manager = if let Some(ref data_dir) = nmd_data_dir {
                     log_info!("使用配置的 nmd_data 目录: {}", data_dir);
-                    crate::dir_manager::DirManager::with_nmd_data_dir(std::path::PathBuf::from(data_dir))
+                    crate::dir_manager::DirManager::with_nmd_data_dir(std::path::PathBuf::from(
+                        data_dir,
+                    ))
                 } else {
                     // 没有配置 nmd_data 目录，弹窗要求配置
                     log_warn!("未配置 nmd_data 目录，弹窗要求配置");
@@ -150,6 +156,27 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
     // 检查 /maps 目录是否存在
     if !maps_dir.exists() {
         log_info!("maps目录不存在，返回空列表");
+        return Ok(serde_json::Value::Array(vec![]));
+    }
+
+    // 获取 addons_dir
+    let manager_guard = DIR_MANAGER
+        .lock()
+        .map_err(|e| format!("无法锁定目录管理器: {:?}", e))?;
+    let addons_dir_opt = manager_guard.as_ref().and_then(|dm| dm.addons_dir());
+
+    let addons_dir = match addons_dir_opt {
+        Some(p) => p.to_owned(),
+        None => {
+            log_warn!("未配置 addons_dir");
+            return Ok(serde_json::Value::Array(vec![]));
+        }
+    };
+
+    log_info!("addons_dir: {}", addons_dir.display());
+
+    if !addons_dir.exists() {
+        log_warn!("addons_dir 不存在，返回空挂载列表");
         return Ok(serde_json::Value::Array(vec![]));
     }
 
@@ -198,10 +225,30 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
                                                                 }
                                                             };
 
+                                                            // 计算文件路径的哈希值（使用相对路径：组/文件）
+                                                            let relative_path = format!(
+                                                                "{}/{}",
+                                                                folder_name_str, file_name_str
+                                                            );
+                                                            let mut hasher = DefaultHasher::new();
+                                                            relative_path.hash(&mut hasher);
+                                                            let hash = hasher.finish();
+                                                            let link_name = format!(
+                                                                "nmd_link_{:016x}.vpk",
+                                                                hash
+                                                            );
+
+                                                            // 检查是否已挂载（通过检查链接名是否存在）
+                                                            let link_path =
+                                                                addons_dir.join(&link_name);
+                                                            let is_mounted = link_path.exists();
+
                                                             // 添加到文件列表
                                                             file_list.push(serde_json::json!({
                                                                 "name": file_name_str,
-                                                                "size": size
+                                                                "size": size,
+                                                                "mounted": is_mounted,
+                                                                "link_name": link_name
                                                             }));
                                                         }
                                                     }
@@ -223,9 +270,15 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
 
                                 // 如果文件夹中有文件，添加到分组列表
                                 if !files.is_empty() {
+                                    // 检查组是否已挂载（所有文件都已挂载）
+                                    let all_mounted = files.iter().all(|f| {
+                                        f.get("mounted").and_then(|v| v.as_bool()).unwrap_or(false)
+                                    });
+
                                     group_list.push(serde_json::json!({
                                         "name": folder_name_str,
-                                        "files": files
+                                        "files": files,
+                                        "mounted": all_mounted
                                     }));
                                 }
                             }
@@ -357,10 +410,16 @@ pub fn delete_map_file(group_name: String, file_name: String) -> Result<String, 
             }
 
             // 获取目录路径并克隆它，避免生命周期问题
-            manager.as_ref().unwrap().downloads_dir().parent().ok_or_else(|| {
-                log_error!("无法获取 nmd_data 目录");
-                "无法获取 nmd_data 目录".to_string()
-            })?.to_path_buf()
+            manager
+                .as_ref()
+                .unwrap()
+                .downloads_dir()
+                .parent()
+                .ok_or_else(|| {
+                    log_error!("无法获取 nmd_data 目录");
+                    "无法获取 nmd_data 目录".to_string()
+                })?
+                .to_path_buf()
         }
         Err(e) => {
             log_error!("无法锁定目录管理器: {:?}", e);
@@ -415,10 +474,11 @@ pub async fn install(
     // 锁定并获取目录管理器实例
     log_debug!("尝试锁定目录管理器...");
     let mut manager = DIR_MANAGER.lock().map_err(|e| {
+        let app_handle_clone = app_handle.clone();
         log_error!("无法锁定目录管理器: {:?}", e);
         // 显示错误对话框
         show_dialog(
-            &app_handle,
+            &app_handle_clone,
             &format!("无法锁定目录管理器: {:?}", e),
             MessageDialogKind::Error,
             "错误",
@@ -432,7 +492,7 @@ pub async fn install(
         log_info!("目录管理器未初始化，开始初始化...");
 
         // 尝试从配置文件读取 nmd_data 目录
-        let nmd_data_dir = crate::config_manager::get_data_dir(&app_handle)?;
+        let nmd_data_dir = crate::config_manager::get_data_dir(app_handle.clone())?;
 
         // 根据配置创建目录管理器
         let dir_manager = if let Some(data_dir) = nmd_data_dir {
@@ -442,7 +502,7 @@ pub async fn install(
             // 没有配置 nmd_data 目录，弹窗要求配置
             log_warn!("未配置 nmd_data 目录，弹窗要求配置");
             show_dialog(
-                &app_handle,
+                &app_handle.clone(),
                 "请先配置数据存储目录。\n\n在文件管理器窗口中点击\"修改目录\"按钮进行配置。",
                 MessageDialogKind::Warning,
                 "未配置数据目录",
@@ -454,7 +514,7 @@ pub async fn install(
             log_error!("目录管理器初始化失败: {}", e);
             // 显示错误对话框
             show_dialog(
-                &app_handle,
+                &app_handle.clone(),
                 &format!("目录管理器初始化失败: {}", e),
                 MessageDialogKind::Error,
                 "错误",
@@ -475,7 +535,7 @@ pub async fn install(
             log_error!("无法获取 nmd_data 目录");
             "无法获取 nmd_data 目录".to_string()
         })?;
-    
+
     let maps_dir = nmd_data_dir.join("maps");
     let extract_dir = maps_dir.to_string_lossy().to_string();
     log_info!("解压目录设置为: {}", extract_dir);
@@ -796,4 +856,366 @@ pub fn deep_link_ready(handle: AppHandle) {
         let args = std::env::args().collect::<Vec<_>>();
         handle_deep_link(handle.clone(), args);
     });
+}
+
+#[tauri::command]
+pub fn get_file_symlinks(dir_path: String) -> Result<serde_json::Value, String> {
+    log_info!("接收到获取文件符号链接请求: {}", dir_path);
+
+    let symlinks = crate::symlink_manager::get_all_file_symlinks_in_dir(&dir_path)?;
+
+    Ok(serde_json::json!(symlinks))
+}
+
+#[tauri::command]
+pub fn create_file_symlink(
+    target_path: String,
+    link_dir: String,
+    link_name: String,
+) -> Result<String, String> {
+    log_info!(
+        "接收到创建文件符号链接请求: 目标={}, 链接目录={}, 链接名称={}",
+        target_path,
+        link_dir,
+        link_name
+    );
+
+    crate::symlink_manager::create_file_symlink(&target_path, &link_dir, &link_name)
+}
+
+#[tauri::command]
+pub fn delete_file_symlink(link_path: String) -> Result<String, String> {
+    log_info!("接收到删除文件符号链接请求: {}", link_path);
+
+    crate::symlink_manager::delete_file_symlink(&link_path)
+}
+
+#[tauri::command]
+pub fn mount_file(
+    group_name: String,
+    file_name: String,
+    app_handle: AppHandle,
+) -> Result<String, String> {
+    log_info!("接收到挂载文件请求: 组={}, 文件={}", group_name, file_name);
+
+    // 获取 nmd_data 目录
+    let nmd_data_dir = crate::config_manager::get_data_dir(app_handle.clone())?;
+
+    let nmd_data_path = match nmd_data_dir {
+        Some(data_dir) => std::path::PathBuf::from(data_dir),
+        None => {
+            log_error!("无法获取 nmd_data 目录");
+            return Err("无法获取 nmd_data 目录".to_string());
+        }
+    };
+
+    // 构建源文件路径
+    let source_path = nmd_data_path
+        .join("maps")
+        .join(&group_name)
+        .join(&file_name);
+
+    if !source_path.exists() {
+        return Err(format!("源文件不存在: {}", source_path.display()));
+    }
+
+    // 获取 addons_dir
+    let addons_dir = match DIR_MANAGER.lock() {
+        Ok(manager) => {
+            if manager.is_none() {
+                return Err("目录管理器未初始化".to_string());
+            }
+            manager
+                .as_ref()
+                .unwrap()
+                .addons_dir()
+                .ok_or_else(|| {
+                    log_error!("无法获取 addons_dir");
+                    "无法获取 addons_dir".to_string()
+                })?
+                .to_path_buf()
+        }
+        Err(e) => {
+            log_error!("无法锁定目录管理器: {:?}", e);
+            return Err(format!("无法锁定目录管理器: {:?}", e));
+        }
+    };
+
+    // 计算文件路径的哈希值（使用相对路径：组/文件）
+    let relative_path = format!("{}/{}", group_name, file_name);
+    let mut hasher = DefaultHasher::new();
+    relative_path.hash(&mut hasher);
+    let hash = hasher.finish();
+    let link_name = format!("nmd_link_{:016x}.vpk", hash);
+
+    // 创建符号链接
+    crate::symlink_manager::create_file_symlink(
+        &source_path.to_string_lossy().to_string(),
+        addons_dir.to_str().unwrap_or(""),
+        &link_name,
+    )?;
+
+    log_info!("文件挂载成功: {} -> {}", relative_path, link_name);
+    Ok(format!("文件挂载成功: {}", link_name))
+}
+
+#[tauri::command]
+pub fn unmount_file(
+    group_name: String,
+    file_name: String,
+    _app_handle: AppHandle,
+) -> Result<String, String> {
+    log_info!("接收到卸载文件请求: 组={}, 文件={}", group_name, file_name);
+
+    // 获取 addons_dir
+    let addons_dir = match DIR_MANAGER.lock() {
+        Ok(manager) => {
+            if manager.is_none() {
+                return Err("目录管理器未初始化".to_string());
+            }
+            manager
+                .as_ref()
+                .unwrap()
+                .addons_dir()
+                .ok_or_else(|| {
+                    log_error!("无法获取 addons_dir");
+                    "无法获取 addons_dir".to_string()
+                })?
+                .to_path_buf()
+        }
+        Err(e) => {
+            log_error!("无法锁定目录管理器: {:?}", e);
+            return Err(format!("无法锁定目录管理器: {:?}", e));
+        }
+    };
+
+    // 计算文件路径的哈希值（使用相对路径：组/文件）
+    let relative_path = format!("{}/{}", group_name, file_name);
+    let mut hasher = DefaultHasher::new();
+    relative_path.hash(&mut hasher);
+    let hash = hasher.finish();
+    let link_name = format!("nmd_link_{:016x}.vpk", hash);
+
+    // 构建链接路径
+    let link_path = addons_dir.join(&link_name);
+
+    // 删除符号链接
+    crate::symlink_manager::delete_file_symlink(link_path.to_str().unwrap_or(""))?;
+
+    log_info!("文件卸载成功: {}", link_name);
+    Ok(format!("文件卸载成功: {}", link_name))
+}
+
+#[tauri::command]
+pub fn mount_group(group_name: String, app_handle: AppHandle) -> Result<String, String> {
+    log_info!("接收到挂载组请求: 组={}", group_name);
+
+    // 获取 nmd_data 目录
+    let nmd_data_dir = crate::config_manager::get_data_dir(app_handle)?;
+
+    let nmd_data_path = match nmd_data_dir {
+        Some(data_dir) => std::path::PathBuf::from(data_dir),
+        None => {
+            log_error!("无法获取 nmd_data 目录");
+            return Err("无法获取 nmd_data 目录".to_string());
+        }
+    };
+
+    // 构建组目录路径
+    let group_dir = nmd_data_path.join("maps").join(&group_name);
+
+    if !group_dir.exists() {
+        return Err(format!("组目录不存在: {}", group_dir.display()));
+    }
+
+    // 获取 addons_dir
+    let addons_dir = match DIR_MANAGER.lock() {
+        Ok(manager) => {
+            if manager.is_none() {
+                return Err("目录管理器未初始化".to_string());
+            }
+            manager
+                .as_ref()
+                .unwrap()
+                .addons_dir()
+                .ok_or_else(|| {
+                    log_error!("无法获取 addons_dir");
+                    "无法获取 addons_dir".to_string()
+                })?
+                .to_path_buf()
+        }
+        Err(e) => {
+            log_error!("无法锁定目录管理器: {:?}", e);
+            return Err(format!("无法锁定目录管理器: {:?}", e));
+        }
+    };
+
+    // 读取组内所有文件
+    let entries = match std::fs::read_dir(&group_dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            log_error!("无法读取组目录: {:?}, 错误: {:?}", group_dir, e);
+            return Err(format!("无法读取组目录: {:?}", e));
+        }
+    };
+
+    let mut mounted_count = 0;
+    let mut error_count = 0;
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                log_warn!("读取文件项失败: {:?}", e);
+                error_count += 1;
+                continue;
+            }
+        };
+
+        let file_path = entry.path();
+
+        if !file_path.is_file() {
+            continue;
+        }
+
+        let file_name = match file_path.file_name() {
+            Some(n) => n.to_string_lossy().to_string(),
+            None => {
+                log_warn!("无法获取文件名: {:?}", file_path);
+                error_count += 1;
+                continue;
+            }
+        };
+
+        // 计算文件路径的哈希值（使用相对路径：组/文件）
+        let relative_path = format!("{}/{}", group_name, file_name);
+        let mut hasher = DefaultHasher::new();
+        relative_path.hash(&mut hasher);
+        let hash = hasher.finish();
+        let link_name = format!("nmd_link_{:016x}.vpk", hash);
+
+        // 创建符号链接
+        match crate::symlink_manager::create_file_symlink(
+            &file_path.to_string_lossy().to_string(),
+            addons_dir.to_str().unwrap_or(""),
+            &link_name,
+        ) {
+            Ok(_) => mounted_count += 1,
+            Err(e) => {
+                log_warn!("挂载文件 {} 失败: {:?}", file_name, e);
+                error_count += 1;
+            }
+        }
+    }
+
+    log_info!(
+        "组挂载完成: 成功挂载 {} 个文件，失败 {} 个",
+        mounted_count,
+        error_count
+    );
+    Ok(format!("组挂载完成: 成功挂载 {} 个文件", mounted_count))
+}
+
+#[tauri::command]
+pub fn unmount_group(group_name: String, app_handle: AppHandle) -> Result<String, String> {
+    log_info!("接收到卸载组请求: 组={}", group_name);
+
+    // 获取 nmd_data 目录
+    let nmd_data_dir = crate::config_manager::get_data_dir(app_handle)?;
+
+    let nmd_data_path = match nmd_data_dir {
+        Some(data_dir) => std::path::PathBuf::from(data_dir),
+        None => {
+            log_error!("无法获取 nmd_data 目录");
+            return Err("无法获取 nmd_data 目录".to_string());
+        }
+    };
+
+    // 构建组目录路径
+    let group_dir = nmd_data_path.join("maps").join(&group_name);
+
+    // 获取 addons_dir
+    let addons_dir = match DIR_MANAGER.lock() {
+        Ok(manager) => {
+            if manager.is_none() {
+                return Err("目录管理器未初始化".to_string());
+            }
+            manager
+                .as_ref()
+                .unwrap()
+                .addons_dir()
+                .ok_or_else(|| {
+                    log_error!("无法获取 addons_dir");
+                    "无法获取 addons_dir".to_string()
+                })?
+                .to_path_buf()
+        }
+        Err(e) => {
+            log_error!("无法锁定目录管理器: {:?}", e);
+            return Err(format!("无法锁定目录管理器: {:?}", e));
+        }
+    };
+
+    // 读取组内所有文件
+    let entries = match std::fs::read_dir(&group_dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            log_error!("无法读取组目录: {:?}, 错误: {:?}", group_dir, e);
+            return Err(format!("无法读取组目录: {:?}", e));
+        }
+    };
+
+    let mut unmounted_count = 0;
+    let mut error_count = 0;
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                log_warn!("读取文件项失败: {:?}", e);
+                error_count += 1;
+                continue;
+            }
+        };
+
+        let file_path = entry.path();
+
+        if !file_path.is_file() {
+            continue;
+        }
+
+        // 计算文件路径的哈希值（使用相对路径：组/文件）
+        let file_name = match file_path.file_name() {
+            Some(n) => n.to_string_lossy().to_string(),
+            None => {
+                log_warn!("无法获取文件名: {:?}", file_path);
+                error_count += 1;
+                continue;
+            }
+        };
+        let relative_path = format!("{}/{}", group_name, file_name);
+        let mut hasher = DefaultHasher::new();
+        relative_path.hash(&mut hasher);
+        let hash = hasher.finish();
+        let link_name = format!("nmd_link_{:016x}.vpk", hash);
+
+        // 构建链接路径
+        let link_path = addons_dir.join(&link_name);
+
+        // 删除符号链接
+        match crate::symlink_manager::delete_file_symlink(link_path.to_str().unwrap_or("")) {
+            Ok(_) => unmounted_count += 1,
+            Err(e) => {
+                log_warn!("卸载文件 {} 失败: {:?}", link_name, e);
+                error_count += 1;
+            }
+        }
+    }
+
+    log_info!(
+        "组卸载完成: 成功卸载 {} 个文件，失败 {} 个",
+        unmounted_count,
+        error_count
+    );
+    Ok(format!("组卸载完成: 成功卸载 {} 个文件", unmounted_count))
 }
