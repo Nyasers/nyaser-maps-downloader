@@ -2,9 +2,7 @@
 
 // 标准库导入
 use std::{
-    env::temp_dir,
     fs,
-    ops::Drop,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -13,19 +11,22 @@ use std::{
 extern crate lazy_static;
 use lazy_static::lazy_static;
 use regex::Regex;
-use uuid::Uuid;
 use winreg::{enums::*, RegKey};
+
+// 内部模块导入
+use crate::{log_error, log_info, log_warn};
 
 // 全局目录管理器实例，使用 Arc<Mutex<>> 确保线程安全
 lazy_static! {
     pub static ref DIR_MANAGER: Arc<Mutex<Option<DirManager>>> = Arc::new(Mutex::new(None));
 }
 
-// 目录管理器，负责创建和管理临时目录和解压目录
+// 目录管理器，负责创建和管理临时目录和 L4D2 addons 目录
 // 实现 Drop trait，在程序退出时自动清理临时目录
 pub struct DirManager {
-    temp_dir: PathBuf,
-    extract_dir: Option<PathBuf>,
+    addons_dir: Option<PathBuf>,
+    downloads_dir: PathBuf,
+    bin_dir: PathBuf,
 }
 
 impl DirManager {
@@ -35,51 +36,68 @@ impl DirManager {
     ///
     /// 临时目录以 "nmd_" 开头并附加随机 UUID
     pub fn new() -> Result<Self, String> {
-        // 获取系统临时目录
-        let sys_temp_dir = temp_dir();
-
-        // 创建以 "nmd" 开头的临时目录（Nyaser Maps Downloader）
-        let temp_dir = sys_temp_dir.join(format!("nmd_{}", Uuid::new_v4().simple()));
-
-        // 确保临时目录存在，创建失败时返回错误
-        std::fs::create_dir_all(&temp_dir).map_err(|e| format!("无法创建临时目录: {:?}", e))?;
-
         Ok(Self {
-            temp_dir,
-            extract_dir: None,
+            addons_dir: None,
+            downloads_dir: PathBuf::new(),
+            bin_dir: PathBuf::new(),
         })
     }
 
-    /// 获取临时目录路径
-    pub fn temp_dir(&self) -> &PathBuf {
-        &self.temp_dir
+    /// 使用指定的 nmd_data 目录创建目录管理器实例
+    ///
+    /// # 参数
+    /// - `nmd_data_dir`: nmd_data 目录路径
+    ///
+    /// # 返回值
+    /// - 成功时返回 DirManager 实例
+    /// - 失败时返回包含错误信息的 Err
+    pub fn with_nmd_data_dir(nmd_data_dir: PathBuf) -> Result<Self, String> {
+        // 确保 nmd_data 目录存在
+        std::fs::create_dir_all(&nmd_data_dir)
+            .map_err(|e| format!("无法创建 nmd_data 目录: {:?}", e))?;
+
+        // 创建 nmd_data/downloads 目录
+        let downloads_dir = nmd_data_dir.join("downloads");
+        std::fs::create_dir_all(&downloads_dir)
+            .map_err(|e| format!("无法创建 nmd_data/downloads 目录: {:?}", e))?;
+
+        // 创建 nmd_data/bin 目录
+        let bin_dir = nmd_data_dir.join("bin");
+        std::fs::create_dir_all(&bin_dir)
+            .map_err(|e| format!("无法创建 nmd_data/bin 目录: {:?}", e))?;
+
+        Ok(Self {
+            addons_dir: None,
+            downloads_dir,
+            bin_dir,
+        })
     }
 
-    /// 设置解压目录
-    pub fn set_extract_dir(&mut self, extract_dir: PathBuf) {
-        self.extract_dir = Some(extract_dir);
+    /// 获取下载目录路径
+    pub fn downloads_dir(&self) -> &PathBuf {
+        &self.downloads_dir
     }
 
-    /// 获取解压目录路径（如果已设置）
-    pub fn extract_dir(&self) -> Option<&PathBuf> {
-        self.extract_dir.as_ref()
+    /// 获取二进制文件目录路径
+    pub fn bin_dir(&self) -> &PathBuf {
+        &self.bin_dir
+    }
+
+    /// 设置 L4D2 addons 目录
+    pub fn set_addons_dir(&mut self, addons_dir: PathBuf) {
+        self.addons_dir = Some(addons_dir);
+    }
+
+    /// 获取 L4D2 addons 目录路径（如果已设置）
+    pub fn addons_dir(&self) -> Option<&PathBuf> {
+        self.addons_dir.as_ref()
     }
 }
 
-// 实现 Drop trait，在结构体被销毁时自动清理临时目录
-impl Drop for DirManager {
-    fn drop(&mut self) {
-        // 尝试删除临时目录及其所有内容
-        if let Err(e) = std::fs::remove_dir_all(&self.temp_dir) {
-            eprintln!("无法删除临时目录 {}: {:?}", self.temp_dir.display(), e);
-        }
-    }
-}
-
-/// 获取全局临时目录路径
+/// 获取全局下载目录路径
 ///
 /// 如果全局目录管理器尚未初始化，则会自动初始化
-pub fn get_global_temp_dir() -> Result<PathBuf, String> {
+pub fn get_global_downloads_dir() -> Result<PathBuf, String> {
     let mut manager = DIR_MANAGER
         .lock()
         .map_err(|e| format!("无法锁定目录管理器: {:?}", e))?;
@@ -89,14 +107,14 @@ pub fn get_global_temp_dir() -> Result<PathBuf, String> {
         *manager = Some(DirManager::new()?);
     }
 
-    // 返回临时目录路径的副本
-    Ok(manager.as_ref().unwrap().temp_dir().to_path_buf())
+    // 返回下载目录路径的副本
+    Ok(manager.as_ref().unwrap().downloads_dir().to_path_buf())
 }
 
-/// 设置全局解压目录
+/// 获取全局二进制目录路径
 ///
 /// 如果全局目录管理器尚未初始化，则会自动初始化
-pub fn set_global_extract_dir(extract_dir: &str) -> Result<(), String> {
+pub fn get_global_bin_dir() -> Result<PathBuf, String> {
     let mut manager = DIR_MANAGER
         .lock()
         .map_err(|e| format!("无法锁定目录管理器: {:?}", e))?;
@@ -106,23 +124,30 @@ pub fn set_global_extract_dir(extract_dir: &str) -> Result<(), String> {
         *manager = Some(DirManager::new()?);
     }
 
-    // 设置解压目录
+    // 返回二进制目录路径的副本
+    Ok(manager.as_ref().unwrap().bin_dir().to_path_buf())
+}
+
+/// 设置全局 L4D2 addons 目录
+///
+/// 如果全局目录管理器尚未初始化，则会自动初始化
+pub fn set_global_addons_dir(addons_dir: &str) -> Result<(), String> {
+    let mut manager = DIR_MANAGER
+        .lock()
+        .map_err(|e| format!("无法锁定目录管理器: {:?}", e))?;
+
+    // 如果还没有初始化目录管理器，先初始化
+    if manager.is_none() {
+        *manager = Some(DirManager::new()?);
+    }
+
+    // 设置 L4D2 addons 目录
     manager
         .as_mut()
         .unwrap()
-        .set_extract_dir(PathBuf::from(extract_dir));
+        .set_addons_dir(PathBuf::from(addons_dir));
 
     Ok(())
-}
-
-/// 显式清理全局临时目录
-///
-/// 重置目录管理器，触发 Drop trait 的执行以清理临时目录
-pub fn cleanup_temp_dir() {
-    if let Ok(mut manager) = DIR_MANAGER.lock() {
-        // 重置管理器，触发 Drop trait 的执行
-        *manager = None;
-    }
 }
 
 // ========== Steam相关功能 ==========
@@ -236,24 +261,34 @@ pub fn parse_appmanifest(manifest_path: &PathBuf) -> Result<String, String> {
 /// 4. 解析 appmanifest 获取游戏安装目录
 /// 5. 构建并验证 addons 目录路径
 pub fn get_l4d2_addons_dir() -> Result<String, String> {
+    log_info!("开始查找 Left 4 Dead 2 游戏目录...");
+
     // 从注册表获取Steam安装路径
+    log_info!("从注册表获取 Steam 安装路径...");
     let steam_path = get_steam_install_path()?;
+    log_info!("Steam 安装路径: {}", steam_path);
 
     // 解析libraryfolders.vdf获取所有Steam库路径
+    log_info!("解析 libraryfolders.vdf 获取所有 Steam 库路径...");
     let library_paths = parse_library_folders(&steam_path)?;
+    log_info!("找到 {} 个 Steam 库路径", library_paths.len());
 
     // 游戏ID 550是Left 4 Dead 2
     const L4D2_APP_ID: &str = "550";
 
     // 遍历所有库路径，查找appmanifest_550.acf文件
-    for path in library_paths {
+    for (index, path) in library_paths.iter().enumerate() {
+        log_info!("检查第 {} 个库路径: {}", index + 1, path);
         let manifest_path = PathBuf::from(&path)
             .join("steamapps")
             .join(format!("appmanifest_{}.acf", L4D2_APP_ID));
 
+        log_info!("检查 manifest 文件: {}", manifest_path.display());
         if manifest_path.exists() {
+            log_info!("找到 appmanifest_550.acf，开始解析...");
             // 解析appmanifest文件获取游戏安装目录
             if let Ok(installdir) = parse_appmanifest(&manifest_path) {
+                log_info!("游戏安装目录: {}", installdir);
                 // 构建addons目录路径
                 let addons_dir = PathBuf::from(&path)
                     .join("steamapps")
@@ -262,16 +297,23 @@ pub fn get_l4d2_addons_dir() -> Result<String, String> {
                     .join("left4dead2")
                     .join("addons");
 
+                log_info!("检查 addons 目录: {}", addons_dir.display());
                 if addons_dir.exists() {
+                    log_info!("找到 Left 4 Dead 2 addons 目录: {}", addons_dir.display());
                     return Ok(addons_dir.to_string_lossy().to_string());
+                } else {
+                    log_warn!("addons 目录不存在: {}", addons_dir.display());
                 }
+            } else {
+                log_warn!("解析 appmanifest 文件失败");
             }
             // 解析失败时继续检查下一个库路径
+        } else {
+            log_info!("appmanifest_550.acf 不存在");
         }
     }
 
-    Err(
-        "未找到 Left 4 Dead 2 游戏目录，请确认你已经在 Steam 中安装了 Left 4 Dead 2 游戏"
-            .to_string(),
-    )
+    let error_msg = "未找到 Left 4 Dead 2 游戏目录，请确认你已经在 Steam 中安装了 Left 4 Dead 2 游戏".to_string();
+    log_error!("{}", error_msg);
+    Err(error_msg)
 }

@@ -4,7 +4,7 @@
   "version": "1.12.4",
   "identifier": "top.nyaser.maps",
   "build": {
-    "frontendDist": "./asset/html/frontend"
+    "frontendDist": "./asset"
   },
   "app": {
     "withGlobalTauri": true,
@@ -22,7 +22,7 @@
         "title": "Nyaser Maps Downloader - 文件管理器",
         "width": 800,
         "height": 600,
-        "url": "file_manager.html",
+        "url": "http://asset.localhost/filemanager/main.html",
         "visible": false,
         "parent": "main"
       },
@@ -37,13 +37,19 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' https://maps.nyase.ru file://* asset://* 'unsafe-inline' 'unsafe-eval'"
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      },
+      "csp": "default-src 'self' https://maps.nyase.ru file://* 'unsafe-inline' 'unsafe-eval'"
     }
   },
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -61,14 +67,18 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYwODYyMjI3REIwNkE2MjkKUldRcHBnYmJKeUtHOEV6M01HMzQ3REZuYXZVMi9RM0JrNlo5UFR2SG1mTU1mTTBJQU84Wko2akMK",
-      "endpoints": ["https://tup.nyase.ru/?Nyasers/nyaser-maps-downloader"],
+      "endpoints": [
+        "https://tup.nyase.ru/?Nyasers/nyaser-maps-downloader"
+      ],
       "windows": {
         "installMode": "passive"
       }
     },
     "deep-link": {
       "desktop": {
-        "schemes": ["nmd"]
+        "schemes": [
+          "nmd"
+        ]
       }
     }
   }

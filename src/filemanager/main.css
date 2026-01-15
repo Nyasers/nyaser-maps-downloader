@@ -1,0 +1,449 @@
+body {
+  font-family: Arial, sans-serif;
+  margin: 20px;
+  color: #333;
+  background-color: #f5f5f5;
+}
+
+h1 {
+  color: #4caf50;
+  margin-bottom: 20px;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  background: white;
+  padding: 20px;
+  border-radius: 5px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.file-list {
+  margin-top: 20px;
+}
+
+.file-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.file-item.selected {
+  background-color: #e3f2fd;
+}
+
+.file-checkbox-container {
+  position: relative;
+  padding-left: 25px;
+  margin-right: 10px;
+  cursor: pointer;
+  display: inline-block;
+  height: 20px;
+  line-height: 20px;
+}
+
+/* 隐藏原生复选框 */
+.file-checkbox-container input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+  height: 0;
+  width: 0;
+}
+
+/* 自定义复选框样式 */
+.checkbox-custom {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 18px;
+  width: 18px;
+  margin-top: 0px;
+  background-color: #eee;
+  border-radius: 3px;
+  border: 1px solid #ccc;
+}
+
+/* 鼠标悬停时的样式 */
+.file-checkbox-container:hover input ~ .checkbox-custom {
+  background-color: #ccc;
+}
+
+/* 选中时的样式 */
+.file-checkbox-container input:checked ~ .checkbox-custom {
+  background-color: #2196f3;
+}
+
+/* 创建复选标记（默认隐藏） */
+.checkbox-custom:after {
+  content: "";
+  position: absolute;
+  display: none;
+}
+
+/* 显示复选标记 */
+.file-checkbox-container input:checked ~ .checkbox-custom:after {
+  display: block;
+}
+
+/* 自定义复选框样式 */
+.file-checkbox-container .checkbox-custom:after {
+  left: 5px;
+  top: 3px;
+  width: 6px;
+  height: 10px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  display: block;
+}
+
+/* 分组相关样式 */
+.group-item {
+  margin-bottom: 15px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease;
+}
+
+.group-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* 自定义复选框状态样式 */
+.file-checkbox:checked + .checkbox-custom {
+  background-color: #2196f3 !important;
+}
+
+.file-checkbox:checked + .checkbox-custom:after {
+  display: block;
+}
+
+.group-header {
+  background-color: #f5f5f5;
+  padding: 10px 15px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  transition: background-color 0.2s, border-left-width 0.2s,
+    border-left-color 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.group-header:hover {
+  background-color: #eeeeee;
+}
+
+.group-header.selected {
+  background-color: #e3f2fd;
+  border-left-color: #2196f3;
+  border-left-width: 3px;
+}
+
+.group-toggle {
+  cursor: pointer;
+  font-size: 14px;
+  margin-left: 5px;
+  transition: transform 0.2s ease;
+}
+
+.group-toggle.expanded {
+  transform: rotate(90deg);
+  transition: transform 0.2s ease;
+}
+
+.group-info {
+  flex-grow: 1;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.group-stats {
+  color: #666;
+  font-size: 12px;
+  min-width: 120px;
+  white-space: nowrap;
+  margin-right: 10px;
+}
+
+/* 确保删除按钮和统计信息不会重叠 */
+.group-header {
+  justify-content: space-between;
+}
+
+/* 确保统计信息和删除按钮之间有足够的空间 */
+.group-header > div {
+  flex-shrink: 0;
+}
+
+/* 让组名占据剩余空间 */
+.group-info {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.group-content {
+  display: none;
+  animation: slideDown 0.2s ease-out;
+}
+
+.group-content.expanded {
+  display: block;
+  background-color: #fafafa;
+  border-top: 1px solid #e0e0e0;
+}
+
+.group-files {
+  padding: 0;
+  border-top: 1px solid #e0e0e0;
+}
+
+.group-checkbox-container {
+  display: flex;
+  align-items: center;
+  margin-right: 10px;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+
+  to {
+    opacity: 1;
+    max-height: 1000px;
+  }
+}
+
+/* 分组内文件样式调整 */
+.group-files .file-item {
+  padding-left: 65px;
+  border-bottom: 1px solid #f0f0f0;
+  background-color: white;
+}
+
+.group-files .file-item:last-child {
+  border-bottom: none;
+}
+
+/* 单文件组样式 */
+.single-file-group {
+  background-color: #f9f9f9;
+}
+
+/* 按钮样式优化 */
+.group-delete-btn,
+.delete-btn {
+  transition: all 0.2s ease;
+}
+
+.group-delete-btn:hover,
+.delete-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 统一文件项样式 */
+.file-item {
+  transition: background-color 0.2s ease;
+}
+
+.file-item:hover {
+  background-color: #f5f5f5 !important;
+}
+
+.file-checkbox {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+  height: 0;
+  width: 0;
+}
+
+/* 统一复选框样式 */
+.checkbox-custom {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 18px;
+  width: 18px;
+  margin-top: -9px;
+  background-color: #eee;
+  border-radius: 3px;
+  border: 1px solid #ccc;
+}
+
+.file-checkbox-container:hover .checkbox-custom {
+  background-color: #ccc;
+}
+
+.file-checkbox:checked ~ .checkbox-custom {
+  background-color: #2196f3;
+}
+
+.checkbox-custom:after {
+  content: "";
+  position: absolute;
+  display: none;
+}
+
+.file-checkbox:checked ~ .checkbox-custom:after {
+  display: block;
+}
+
+.checkbox-custom:after {
+  left: 7px;
+  top: 3px;
+  width: 5px;
+  height: 10px;
+  border: solid white;
+  border-width: 0 3px 3px 0;
+  transform: rotate(45deg);
+}
+
+.file-name {
+  flex-grow: 1;
+}
+
+.file-size {
+  margin: 0 10px;
+  color: #666;
+  font-size: 14px;
+}
+
+.delete-btn {
+  background: #f44336;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.delete-btn:hover {
+  background: #d32f2f;
+}
+
+.batch-delete-btn {
+  background: #f44336;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-bottom: 15px;
+  margin-left: 10px;
+  display: none;
+}
+
+.batch-delete-btn:hover {
+  background: #d32f2f;
+}
+
+.batch-delete-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.no-files {
+  text-align: center;
+  color: #666;
+  padding: 20px;
+  font-style: italic;
+}
+
+.refresh-btn {
+  background: #4caf50;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-bottom: 15px;
+}
+
+.refresh-btn:hover {
+  background: #45a049;
+}
+
+.select-all-btn {
+  background: #2196f3;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-bottom: 15px;
+  margin-left: 10px;
+}
+
+.select-all-btn:hover {
+  background: #0b7dda;
+}
+
+/* 数据存储目录配置样式 */
+.data-dir-config {
+  background-color: #f0f8ff;
+  border: 1px solid #e0f0ff;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.data-dir-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.data-dir-info label {
+  font-weight: 500;
+  color: #333;
+}
+
+#dataDir {
+  background-color: white;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  font-family: monospace;
+  font-size: 14px;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-dir-btn {
+  background: #2196f3;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.change-dir-btn:hover:not(:disabled) {
+  background: #0b7dda;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.change-dir-btn:disabled {
+  background: #cccccc;
+  color: #666666;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}

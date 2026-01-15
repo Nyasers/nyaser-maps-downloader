@@ -10,7 +10,7 @@ use tauri_plugin_dialog::MessageDialogKind;
 
 // 内部模块导入
 use crate::{
-    dialog_manager::show_dialog, dir_manager::get_global_temp_dir,
+    dialog_manager::show_dialog, dir_manager::DIR_MANAGER,
     download_manager::DOWNLOAD_QUEUE, init::is_app_shutting_down, log_debug, log_error, log_info,
     log_utils::redirect_process_output, log_warn, queue_manager::QueueManager,
 };
@@ -28,6 +28,8 @@ pub struct ExtractTask {
     pub app_handle: AppHandle,
     /// 下载任务ID，用于关联下载和解压操作
     pub download_task_id: String,
+    /// 压缩包名称（不含扩展名），用于创建子文件夹
+    pub archive_name: String,
 }
 
 // 创建全局解压队列管理器实例
@@ -272,8 +274,12 @@ pub fn start_extract_queue_manager() {
                     extract_task_id,
                     task.file_path
                 );
-                let result =
-                    extract_with_7zip(&task.file_path, &task.extract_dir, &task.download_task_id);
+                let result = extract_with_7zip(
+                    &task.file_path,
+                    &task.extract_dir,
+                    &task.archive_name,
+                    &task.download_task_id,
+                );
 
                 // 定义最大重试次数和解压重试函数
                 const MAX_RETRY_COUNT: u32 = 3;
@@ -302,6 +308,7 @@ pub fn start_extract_queue_manager() {
                     final_result = extract_with_7zip(
                         &task.file_path,
                         &task.extract_dir,
+                        &task.archive_name,
                         &task.download_task_id,
                     );
                 }
@@ -421,53 +428,62 @@ lazy_static::lazy_static! {
 }
 
 /// 检查7z资源文件是否存在
-fn check_7z_resources_exist(temp_dir: &PathBuf) -> bool {
-    let sevenzg_exe_path = temp_dir.join("7zG.exe");
-    let sevenz_dll_path = temp_dir.join("7z.dll");
-    let lang_file_path = temp_dir.join("Lang").join("zh-cn.txt");
+fn check_7z_resources_exist(bin_dir: &PathBuf) -> bool {
+    let sevenzg_exe_path = bin_dir.join("7zG.exe");
+    let sevenz_dll_path = bin_dir.join("7z.dll");
+    let lang_file_path = bin_dir.join("Lang").join("zh-cn.txt");
 
     sevenzg_exe_path.exists() && sevenz_dll_path.exists() && lang_file_path.exists()
 }
 
-/// 从嵌入式资源中释放7zG.exe、7z.dll和语言文件到临时目录
+/// 从嵌入式资源中释放7zG.exe、7z.dll和语言文件到二进制目录
 ///
 /// 这是一个内部辅助函数，应用启动时调用一次，也可以在需要时重新调用
 pub fn release_7z_resources() -> Result<PathBuf, String> {
-    // 获取统一的临时目录
-    let temp_dir = get_global_temp_dir()?;
+    // 获取目录管理器
+    let manager = DIR_MANAGER
+        .lock()
+        .map_err(|e| format!("无法锁定目录管理器: {:?}", e))?;
+
+    // 如果还没有初始化目录管理器，先初始化
+    if manager.is_none() {
+        return Err("目录管理器未初始化".to_string());
+    }
+
+    let bin_dir = manager.as_ref().unwrap().bin_dir();
 
     // 检查资源是否已存在，如果存在则直接返回路径，避免重复释放
-    if check_7z_resources_exist(&temp_dir) {
+    if check_7z_resources_exist(bin_dir) {
         log_debug!("7z资源已存在，不需要重新释放");
-        return Ok(temp_dir.join("7zG.exe"));
+        return Ok(bin_dir.join("7zG.exe"));
     }
 
     // 创建Lang子目录
-    let lang_dir = temp_dir.join("Lang");
+    let lang_dir = bin_dir.join("Lang");
     if let Err(err) = fs::create_dir_all(&lang_dir) {
         log_error!("无法创建Lang目录: {:?}", err);
         return Err(format!("无法创建Lang目录: {:?}", err));
     }
 
     // 释放7zG.exe
-    let sevenzg_exe_path = temp_dir.join("7zG.exe");
+    let sevenzg_exe_path = bin_dir.join("7zG.exe");
     if let Err(err) = fs::write(&sevenzg_exe_path, SEVENZG_EXE_BYTES) {
-        log_error!("无法写入7zG.exe到临时目录: {:?}", err);
-        return Err(format!("无法写入7zG.exe到临时目录: {:?}", err));
+        log_error!("无法写入7zG.exe到二进制目录: {:?}", err);
+        return Err(format!("无法写入7zG.exe到二进制目录: {:?}", err));
     }
 
     // 释放7z.dll
-    let sevenz_dll_path = temp_dir.join("7z.dll");
+    let sevenz_dll_path = bin_dir.join("7z.dll");
     if let Err(err) = fs::write(&sevenz_dll_path, SEVENZ_DLL_BYTES) {
-        log_error!("无法写入7z.dll到临时目录: {:?}", err);
-        return Err(format!("无法写入7z.dll到临时目录: {:?}", err));
+        log_error!("无法写入7z.dll到二进制目录: {:?}", err);
+        return Err(format!("无法写入7z.dll到二进制目录: {:?}", err));
     }
 
     // 释放语言文件
     let lang_file_path = lang_dir.join("zh-cn.txt");
     if let Err(err) = fs::write(&lang_file_path, LANG_ZH_CN_BYTES) {
-        log_error!("无法写入zh-cn.txt到临时目录: {:?}", err);
-        return Err(format!("无法写入zh-cn.txt到临时目录: {:?}", err));
+        log_error!("无法写入zh-cn.txt到二进制目录: {:?}", err);
+        return Err(format!("无法写入zh-cn.txt到二进制目录: {:?}", err));
     }
 
     // 确保文件可执行
@@ -489,8 +505,8 @@ pub fn release_7z_resources() -> Result<PathBuf, String> {
     SEVENZ_RESOURCES_RELEASED.store(true, std::sync::atomic::Ordering::Relaxed);
 
     log_debug!(
-        "7zG.exe、7z.dll和语言文件已成功释放到临时目录: {}",
-        temp_dir.display()
+        "7zG.exe、7z.dll和语言文件已成功释放到二进制目录: {}",
+        bin_dir.display()
     );
     Ok(sevenzg_exe_path)
 }
@@ -515,6 +531,7 @@ pub fn initialize_7z_resources() {
 /// # 参数
 /// - `file_path`: 要解压的文件路径
 /// - `extract_dir`: 解压目标目录
+/// - `archive_name`: 压缩包名称（不含扩展名），用于创建子文件夹
 /// - `task_id`: 任务ID，用于标识当前解压任务
 ///
 /// # 返回值
@@ -523,9 +540,15 @@ pub fn initialize_7z_resources() {
 pub fn extract_with_7zip(
     file_path: &str,
     extract_dir: &str,
+    archive_name: &str,
     task_id: &str,
 ) -> Result<String, String> {
-    log_debug!("开始解压操作: 文件={}, 目标目录={}", file_path, extract_dir);
+    log_debug!(
+        "开始解压操作: 文件={}, 目标目录={}, 子文件夹={}",
+        file_path,
+        extract_dir,
+        archive_name
+    );
 
     // 检查文件是否存在
     let file = PathBuf::from(file_path);
@@ -544,27 +567,21 @@ pub fn extract_with_7zip(
     };
 
     if file_size < 1 {
-        // 如果文件太小（小于1字节），很可能是损坏的
         log_error!("解压失败: 文件大小过小（{}字节），可能已损坏", file_size);
         return Err(format!("解压失败: 文件大小过小，可能已损坏"));
     }
 
     // 添加短暂延迟，确保文件系统有足够时间完成文件写入和释放锁定
-    // 这解决了下载完成后立即尝试解压时可能遇到的文件访问问题
     log_debug!("文件存在且大小正常，等待100毫秒确保文件系统完成操作");
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     // 预检查7z文件格式
-    // 7z文件以0x37 0x7A 0xBC 0xAF 0x27 0x1C作为魔数
-    // 优化：只读取文件头部而不是整个文件，提高效率并避免内存问题
     match std::fs::File::open(&file) {
         Ok(mut file_handle) => {
             let mut header = [0u8; 100];
             match file_handle.read(&mut header) {
                 Ok(bytes_read) => {
                     if bytes_read >= 6 {
-                        // 宽松验证：只检查前两个字节是否是'7z'
-                        // 这样可以避免因编码或读取问题导致的误判，提高兼容性
                         if header[0] == 0x37 && header[1] == 0x7A {
                             log_debug!("文件通过7z魔数检查，确认是有效的7z文件格式");
                         } else {
@@ -593,32 +610,37 @@ pub fn extract_with_7zip(
         }
     }
 
-    // 确保解压目录存在，如果不存在则创建
-    let extract_path = PathBuf::from(extract_dir);
-    if !extract_path.exists() {
-        log_debug!("解压目录不存在，尝试创建: {}", extract_dir);
-        if let Err(e) = std::fs::create_dir_all(&extract_path) {
-            log_error!("创建解压目录失败: {}", e);
-            return Err(format!("创建解压目录失败: {}", e));
+    // extract_dir 已经是 maps 目录（例如 E:\NMD_Data\maps），直接使用
+    let maps_dir = PathBuf::from(extract_dir);
+
+    // 确保 maps 目录存在
+    if !maps_dir.exists() {
+        log_debug!("maps目录不存在，尝试创建: {}", maps_dir.display());
+        if let Err(e) = std::fs::create_dir_all(&maps_dir) {
+            log_error!("创建maps目录失败: {}", e);
+            return Err(format!("创建maps目录失败: {}", e));
         }
-        log_info!("解压目录创建成功: {}", extract_dir);
+        log_info!("maps目录创建成功: {}", maps_dir.display());
     } else {
-        log_debug!("解压目录已存在: {}", extract_dir);
+        log_debug!("maps目录已存在: {}", maps_dir.display());
     }
 
-    // 创建临时解压子目录
-    let temp_extract_dir = extract_path.join(format!(
-        "temp_{}_{}",
-        task_id,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    ));
-    log_debug!("创建临时解压目录: {}", temp_extract_dir.display());
-    if let Err(e) = std::fs::create_dir_all(&temp_extract_dir) {
-        log_error!("创建临时解压目录失败: {}", e);
-        return Err(format!("创建临时解压目录失败: {}", e));
+    // 创建以压缩包名称命名的子文件夹
+    let target_dir = maps_dir.join(archive_name);
+    log_debug!("创建目标解压目录: {}", target_dir.display());
+
+    // 如果目标目录已存在，先删除
+    if target_dir.exists() {
+        log_debug!("目标目录已存在，先删除: {}", target_dir.display());
+        if let Err(e) = std::fs::remove_dir_all(&target_dir) {
+            log_warn!("删除已存在的目标目录失败: {}", e);
+            return Err(format!("删除已存在的目标目录失败: {}", e));
+        }
+    }
+
+    if let Err(e) = std::fs::create_dir_all(&target_dir) {
+        log_error!("创建目标解压目录失败: {}", e);
+        return Err(format!("创建目标解压目录失败: {}", e));
     }
 
     // 从嵌入式资源获取7zG.exe
@@ -649,11 +671,10 @@ pub fn extract_with_7zip(
     let mut command = std::process::Command::new(sevenz_exe_str);
     command.args(&args);
 
-    // 7zG.exe是GUI版本，不需要隐藏窗口标志，但我们仍然捕获输出以便记录
-    // 设置工作目录为临时解压目录，这样7z会直接解压到这里（不再使用-o参数）
-    command.current_dir(&temp_extract_dir);
-    command.stdout(std::process::Stdio::piped()); // 捕获stdout
-    command.stderr(std::process::Stdio::piped()); // 捕获stderr
+    // 设置工作目录为目标目录，这样7z会直接解压到这里
+    command.current_dir(&target_dir);
+    command.stdout(std::process::Stdio::piped());
+    command.stderr(std::process::Stdio::piped());
 
     // 启动进程（非阻塞）
     let mut child = command
@@ -673,177 +694,43 @@ pub fn extract_with_7zip(
 
     // 检查命令执行结果
     if output.status.success() {
-        // 检查临时解压目录是否有文件
-        let has_files = match std::fs::read_dir(&temp_extract_dir) {
-            Ok(mut entries) => entries.next().is_some(),
-            Err(_) => false,
+        // 检查解压目录是否有文件
+        let file_count = match std::fs::read_dir(&target_dir) {
+            Ok(entries) => entries.count(),
+            Err(e) => {
+                log_error!("读取解压目录失败: {}", e);
+                return Err(format!("读取解压目录失败: {}", e));
+            }
         };
 
-        if has_files {
-            // 重命名解压出的文件并移动到目标目录
-            let renamed_count =
-                match rename_and_move_extracted_files(&temp_extract_dir, &extract_path) {
-                    Ok(count) => count,
-                    Err(e) => {
-                        log_warn!("重命名和移动文件时出错: {}", e);
-                        // 即使重命名失败，也继续尝试清理临时目录
-                        // 但返回错误信息
-                        if let Err(clean_e) = std::fs::remove_dir_all(&temp_extract_dir) {
-                            log_warn!("无法删除临时解压目录: {}", clean_e);
-                        }
-                        return Err(format!("解压成功，但重命名文件时出错: {}", e));
-                    }
-                };
-
-            // 删除临时解压目录
-            if let Err(e) = std::fs::remove_dir_all(&temp_extract_dir) {
-                log_warn!("无法删除临时解压目录: {}", e);
-                // 临时目录删除失败不是致命错误，继续返回成功
-            } else {
-                log_debug!("成功删除临时解压目录: {}", temp_extract_dir.display());
-            }
-
+        if file_count > 0 {
             log_info!(
-                "解压成功: 文件={}, 目标目录={}, 共重命名并移动 {} 个文件",
+                "解压成功: 文件={}, 目标目录={}, 共解压 {} 个文件",
                 file_path,
-                extract_dir,
-                renamed_count
+                target_dir.display(),
+                file_count
             );
-            return Ok(format!(
-                "解压成功: {} 文件已解压到 {}，共解压并处理 {} 个文件",
-                file_path, extract_dir, renamed_count
-            ));
+            Ok(format!(
+                "解压成功: {} 文件已解压到 {}，共解压 {} 个文件",
+                file_path, target_dir.display(), file_count
+            ))
         } else {
-            log_error!("解压失败: 临时解压目录为空，可能文件格式不支持");
-            // 清理临时目录
-            if let Err(e) = std::fs::remove_dir_all(&temp_extract_dir) {
-                log_warn!("无法删除临时解压目录: {}", e);
+            log_error!("解压失败: 解压目录为空，可能文件格式不支持");
+            // 清理空目录
+            if let Err(e) = std::fs::remove_dir_all(&target_dir) {
+                log_warn!("无法删除空的解压目录: {}", e);
             }
-            return Err("解压失败: 解压目录为空，可能文件格式不支持".to_string());
+            Err("解压失败: 解压目录为空，可能文件格式不支持".to_string())
         }
     } else {
         // 解析错误输出
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
         log_error!("7zG.exe解压失败，stderr: {}, stdout: {}", stderr, stdout);
-        // 清理临时目录
-        if let Err(e) = std::fs::remove_dir_all(&temp_extract_dir) {
-            log_warn!("无法删除临时解压目录: {}", e);
+        // 清理目录
+        if let Err(e) = std::fs::remove_dir_all(&target_dir) {
+            log_warn!("无法删除解压目录: {}", e);
         }
-        return Err(format!("解压失败: {}\n\n详细信息:\n{}", stderr, stdout));
+        Err(format!("解压失败: {}\n\n详细信息:\n{}", stderr, stdout))
     }
-}
-
-/// 重命名解压出的文件并移动到目标目录
-///
-/// 遍历临时解压目录中的所有文件，为每个文件添加$nmd_前缀，
-/// 然后移动到最终的解压目录。
-///
-/// # 参数
-/// - `temp_dir`: 临时解压目录的路径
-/// - `target_dir`: 最终目标目录的路径
-///
-/// # 返回值
-/// - 成功时返回Ok(重命名的文件数量)
-/// - 失败时返回包含错误信息的Err
-fn rename_and_move_extracted_files(
-    temp_dir: &PathBuf,
-    target_dir: &PathBuf,
-) -> Result<usize, String> {
-    let mut renamed_count = 0;
-
-    // 遍历临时解压目录中的所有文件
-    let entries = match std::fs::read_dir(temp_dir) {
-        Ok(entries) => entries,
-        Err(e) => {
-            return Err(format!("无法读取临时解压目录: {}", e));
-        }
-    };
-
-    for entry in entries {
-        match entry {
-            Ok(entry) => {
-                let original_path = entry.path();
-
-                // 跳过目录，只处理文件
-                if original_path.is_dir() {
-                    // 如果是子目录，递归处理
-                    let subdir_entries = match std::fs::read_dir(&original_path) {
-                        Ok(entries) => entries,
-                        Err(e) => {
-                            log_warn!("无法读取子目录: {}, 错误: {}", original_path.display(), e);
-                            continue;
-                        }
-                    };
-
-                    // 检查子目录是否为空
-                    if subdir_entries.count() > 0 {
-                        log_warn!("发现非空的子目录: {}, 跳过处理", original_path.display());
-                        continue;
-                    }
-                    continue;
-                }
-
-                // 获取文件名
-                let filename = match original_path.file_name() {
-                    Some(os_str) => match os_str.to_str() {
-                        Some(filename) => filename,
-                        None => {
-                            log_warn!("无法获取文件名: {}", original_path.display());
-                            continue;
-                        }
-                    },
-                    None => {
-                        log_warn!("无法获取文件名: {}", original_path.display());
-                        continue;
-                    }
-                };
-
-                // 已经以$nmd_开头的文件不再重复添加前缀
-                if filename.starts_with("$nmd_") {
-                    log_debug!("文件已经包含前缀,跳过: {}", filename);
-                    // 直接移动到目标目录
-                    let target_path = target_dir.join(filename);
-                    if let Err(e) = std::fs::rename(&original_path, &target_path) {
-                        log_warn!(
-                            "移动文件失败: {} -> {}, 错误: {}",
-                            original_path.display(),
-                            target_path.display(),
-                            e
-                        );
-                    } else {
-                        renamed_count += 1;
-                    }
-                    continue;
-                }
-
-                // 创建带前缀的新文件名
-                let new_filename = format!("$nmd_{}", filename);
-                let target_path = target_dir.join(new_filename);
-
-                // 执行文件重命名和移动操作
-                if let Err(e) = std::fs::rename(&original_path, &target_path) {
-                    log_warn!(
-                        "重命名和移动文件失败: {} -> {}, 错误: {}",
-                        original_path.display(),
-                        target_path.display(),
-                        e
-                    );
-                } else {
-                    log_debug!(
-                        "文件重命名和移动成功: {} -> {}",
-                        original_path.display(),
-                        target_path.display()
-                    );
-                    renamed_count += 1;
-                }
-            }
-            Err(e) => {
-                log_warn!("读取目录项时出错: {}", e);
-            }
-        }
-    }
-
-    log_info!("解压文件重命名和移动完成,共处理 {}个文件", renamed_count);
-    Ok(renamed_count)
 }

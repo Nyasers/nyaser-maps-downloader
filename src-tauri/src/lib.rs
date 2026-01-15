@@ -1,5 +1,5 @@
 // 引入 Tauri 相关模块
-use tauri::{http::Response, AppHandle, Emitter, Manager, Url};
+use tauri::{AppHandle, Emitter, Manager, Url};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_updater::UpdaterExt;
 
@@ -15,6 +15,57 @@ mod init;
 mod log_utils;
 mod queue_manager;
 mod utils;
+
+// 自定义协议处理函数，用于处理asset://请求
+fn asset_protocol_handler<T: tauri::Runtime>(
+    _context: tauri::UriSchemeContext<'_, T>,
+    request: tauri::http::Request<Vec<u8>>,
+    responder: tauri::UriSchemeResponder,
+) {
+    // 获取请求的路径，去除协议前缀
+    let path = request.uri().path().trim_start_matches('/').to_string();
+    log_info!("asset协议请求: {}", path);
+
+    // 构建asset目录路径
+    let asset_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("asset");
+    let file_path = asset_path.join(&path);
+
+    // 在后台线程中读取文件内容
+    tauri::async_runtime::spawn(async move {
+        match std::fs::read(&file_path) {
+            Ok(content) => {
+                // 根据文件扩展名设置Content-Type
+                let content_type = match file_path.extension().and_then(|e| e.to_str()) {
+                    Some("html") => "text/html",
+                    Some("js") => "application/javascript",
+                    Some("css") => "text/css",
+                    Some("json") => "application/json",
+                    Some("png") => "image/png",
+                    Some("jpg") | Some("jpeg") => "image/jpeg",
+                    Some("gif") => "image/gif",
+                    _ => "text/plain",
+                };
+
+                let response = tauri::http::Response::builder()
+                    .status(200)
+                    .header("Content-Type", content_type)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(content)
+                    .unwrap();
+                responder.respond(response);
+            }
+            Err(error) => {
+                log_error!("asset协议请求失败: {:?}", error);
+                let response = tauri::http::Response::builder()
+                    .status(404)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(Vec::new())
+                    .unwrap();
+                responder.respond(response);
+            }
+        }
+    });
+}
 
 // 异步信号处理函数
 async fn handle_signals() {
@@ -57,52 +108,6 @@ fn handle_deep_link(app: AppHandle, args: Vec<String>) {
     }
 }
 
-// 自定义协议处理函数，用于处理asset://请求
-fn asset_protocol_handler<T: tauri::Runtime>(
-    _context: tauri::UriSchemeContext<'_, T>,
-    request: tauri::http::Request<Vec<u8>>,
-) -> tauri::http::Response<Vec<u8>> {
-    // 获取请求的路径，去除协议前缀
-    let path = request.uri().path().trim_start_matches('/');
-    log_info!("asset协议请求路径: {}", path);
-
-    // 构建asset目录路径
-    let asset_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("asset");
-    let file_path = asset_path.join(path);
-    log_info!("asset协议请求的完整文件路径: {:?}", file_path);
-
-    // 读取文件内容并返回响应
-    match std::fs::read(&file_path) {
-        Ok(content) => {
-            // 根据文件扩展名设置Content-Type
-            let content_type = match file_path.extension().and_then(|e| e.to_str()) {
-                Some("html") => "text/html",
-                Some("js") => "application/javascript",
-                Some("css") => "text/css",
-                Some("json") => "application/json",
-                Some("png") => "image/png",
-                Some("jpg") | Some("jpeg") => "image/jpeg",
-                Some("gif") => "image/gif",
-                _ => "text/plain",
-            };
-
-            Response::builder()
-                .status(200)
-                .header("Content-Type", content_type)
-                .body(content)
-                .unwrap()
-        }
-        Err(error) => {
-            log_error!("asset协议请求文件失败: {:?}", error);
-            Response::builder()
-                .status(404)
-                .header("Content-Type", "text/plain")
-                .body("Not Found".as_bytes().to_vec())
-                .unwrap()
-        }
-    }
-}
-
 // 主入口函数
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -129,14 +134,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         // 注册自定义asset协议
-        .register_uri_scheme_protocol("asset", asset_protocol_handler)
+        .register_asynchronous_uri_scheme_protocol("asset", asset_protocol_handler)
         .invoke_handler(tauri::generate_handler![
             commands::install,
-            commands::get_middleware,
             commands::open_file_manager_window,
             commands::open_server_list_window,
-            commands::get_nmd_files,
-            commands::delete_nmd_file,
+            commands::get_maps,
+            commands::delete_map_file,
             commands::cancel_download,
             commands::refresh_download_queue,
             commands::cancel_all_downloads,

@@ -15,53 +15,6 @@ use crate::{
     utils::get_file_name,
 };
 
-/// 获取HTML注入片段 - 从应用资源中读取并返回完整的HTML注入片段
-///
-/// 此函数返回嵌入在程序中的下载拦截器的HTML片段，
-/// 用于在前端页面中注入下载功能。
-///
-/// # 返回值
-/// - 成功时返回HTML片段内容
-/// - 失败时返回错误信息
-
-// 根据构建模式选择使用的HTML文件
-// 在debug模式下使用未压缩的.html文件，在release模式下使用压缩的.min.html文件
-const DOWNLOAD_INTERCEPTOR_HTML: &[u8] = {
-    #[cfg(debug_assertions)]
-    {
-        include_bytes!("../asset/html/middleware.html")
-    }
-
-    #[cfg(not(debug_assertions))]
-    {
-        include_bytes!("../dist/html/middleware.html")
-    }
-};
-
-// 根据构建模式选择使用的JavaScript文件
-// 在debug模式下使用未压缩的.js文件，在release模式下使用压缩的.js文件
-const SERVER_LIST_BUTTON_JS: &[u8] = {
-    #[cfg(debug_assertions)]
-    {
-        include_bytes!("../asset/js/server-list-button.js")
-    }
-
-    #[cfg(not(debug_assertions))]
-    {
-        include_bytes!("../dist/js/server-list-button.js")
-    }
-};
-
-#[tauri::command]
-pub fn get_middleware() -> Result<String, String> {
-    // 将字节数组转换为字符串
-    let html_content = String::from_utf8(DOWNLOAD_INTERCEPTOR_HTML.to_vec())
-        .map_err(|e| format!("HTML内容解码失败: {:?}", e))?;
-
-    log_info!("成功获取HTML注入片段，长度: {} 字节", html_content.len());
-    Ok(html_content)
-}
-
 /// 打开文件管理器窗口
 ///
 /// # 参数
@@ -137,32 +90,42 @@ pub fn open_file_manager_window(app_handle: AppHandle) -> Result<String, String>
     }
 }
 
-/// 获取解压目录下以$nmd_开头的文件列表
+/// 获取 /maps 目录下的文件列表（按子文件夹分组）
 ///
 /// # 返回值
-/// - 成功时返回包含文件信息的Ok
+/// - 成功时返回包含分组文件信息的Ok
 /// - 失败时返回包含错误信息的Err
 #[tauri::command]
-pub fn get_nmd_files() -> Result<serde_json::Value, String> {
-    log_info!("接收到获取nmd文件列表请求");
+pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
+    log_info!("接收到获取maps文件列表请求");
 
-    // 获取解压目录
-    let extract_dir = match DIR_MANAGER.lock() {
+    // 尝试从配置文件读取 nmd_data 目录
+    let nmd_data_dir = crate::config_manager::get_data_dir(&app_handle)?;
+
+    // 初始化目录管理器
+    match DIR_MANAGER.lock() {
         Ok(mut manager) => {
             if manager.is_none() {
-                *manager = Some(crate::dir_manager::DirManager::new().map_err(|e| {
+                // 根据配置创建目录管理器
+                let dir_manager = if let Some(ref data_dir) = nmd_data_dir {
+                    log_info!("使用配置的 nmd_data 目录: {}", data_dir);
+                    crate::dir_manager::DirManager::with_nmd_data_dir(std::path::PathBuf::from(data_dir))
+                } else {
+                    // 没有配置 nmd_data 目录，弹窗要求配置
+                    log_warn!("未配置 nmd_data 目录，弹窗要求配置");
+                    show_dialog(
+                        &app_handle,
+                        "请先配置数据存储目录。\n\n在文件管理器窗口中点击\"修改目录\"按钮进行配置。",
+                        MessageDialogKind::Warning,
+                        "未配置数据目录",
+                    );
+                    return Err("未配置数据存储目录，请先配置".to_string());
+                };
+
+                *manager = Some(dir_manager.map_err(|e| {
                     log_error!("目录管理器初始化失败: {}", e);
                     e
                 })?);
-            }
-
-            // 获取目录路径并克隆它，避免生命周期问题
-            match manager.as_mut().unwrap().extract_dir() {
-                Some(dir) => dir.to_path_buf(),
-                None => {
-                    log_error!("无法获取解压目录");
-                    return Err("无法获取解压目录".to_string());
-                }
             }
         }
         Err(e) => {
@@ -171,39 +134,100 @@ pub fn get_nmd_files() -> Result<serde_json::Value, String> {
         }
     };
 
-    log_info!("解压目录: {}", extract_dir.display());
+    // 获取 nmd_data 目录路径
+    let nmd_data_path = match nmd_data_dir {
+        Some(data_dir) => std::path::PathBuf::from(data_dir),
+        None => {
+            log_error!("无法获取 nmd_data 目录");
+            return Err("无法获取 nmd_data 目录".to_string());
+        }
+    };
 
-    // 读取目录并过滤出以$nmd_开头的文件
-    let files = match std::fs::read_dir(extract_dir) {
+    // 构建 /maps 目录路径
+    let maps_dir = nmd_data_path.join("maps");
+    log_info!("maps目录: {}", maps_dir.display());
+
+    // 检查 /maps 目录是否存在
+    if !maps_dir.exists() {
+        log_info!("maps目录不存在，返回空列表");
+        return Ok(serde_json::Value::Array(vec![]));
+    }
+
+    // 读取 /maps 目录下的所有子文件夹
+    let groups = match std::fs::read_dir(&maps_dir) {
         Ok(dir_entries) => {
-            let mut file_list = Vec::new();
+            let mut group_list = Vec::new();
 
             for entry in dir_entries {
                 match entry {
                     Ok(entry) => {
                         let path = entry.path();
-                        if let Some(file_name) = path.file_name() {
-                            let file_name_str = file_name.to_string_lossy();
-                            // 检查文件名是否以$nmd_开头且是文件（不是目录）
-                            if file_name_str.starts_with("$nmd_") && path.is_file() {
-                                // 获取文件大小
-                                let size = match std::fs::metadata(&path) {
-                                    Ok(meta) => meta.len(),
+                        if path.is_dir() {
+                            if let Some(folder_name) = path.file_name() {
+                                let folder_name_str = folder_name.to_string_lossy().to_string();
+
+                                // 读取子文件夹中的所有文件
+                                let files = match std::fs::read_dir(&path) {
+                                    Ok(file_entries) => {
+                                        let mut file_list = Vec::new();
+
+                                        for file_entry in file_entries {
+                                            match file_entry {
+                                                Ok(file_entry) => {
+                                                    let file_path = file_entry.path();
+                                                    if file_path.is_file() {
+                                                        if let Some(file_name) =
+                                                            file_path.file_name()
+                                                        {
+                                                            let file_name_str = file_name
+                                                                .to_string_lossy()
+                                                                .to_string();
+
+                                                            // 获取文件大小
+                                                            let size = match std::fs::metadata(
+                                                                &file_path,
+                                                            ) {
+                                                                Ok(meta) => meta.len(),
+                                                                Err(e) => {
+                                                                    log_warn!(
+                                                                        "获取文件大小失败: {}, 错误: {:?}",
+                                                                        file_name_str,
+                                                                        e
+                                                                    );
+                                                                    0
+                                                                }
+                                                            };
+
+                                                            // 添加到文件列表
+                                                            file_list.push(serde_json::json!({
+                                                                "name": file_name_str,
+                                                                "size": size
+                                                            }));
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    log_warn!("读取文件项失败: {:?}", e);
+                                                    continue;
+                                                }
+                                            }
+                                        }
+
+                                        file_list
+                                    }
                                     Err(e) => {
-                                        log_warn!(
-                                            "获取文件大小失败: {}, 错误: {:?}",
-                                            file_name_str,
-                                            e
-                                        );
-                                        0
+                                        log_warn!("读取文件夹 {} 失败: {:?}", folder_name_str, e);
+                                        Vec::new()
                                     }
                                 };
 
-                                // 添加到文件列表
-                                file_list.push(serde_json::json!({
-                                    "name": file_name_str,
-                                    "size": size
-                                }));
+                                // 如果文件夹中有文件，添加到分组列表
+                                if !files.is_empty() {
+                                    group_list.push(serde_json::json!({
+                                        "name": folder_name_str,
+                                        "files": files
+                                    }));
+                                }
                             }
                         }
                     }
@@ -214,16 +238,16 @@ pub fn get_nmd_files() -> Result<serde_json::Value, String> {
                 }
             }
 
-            file_list
+            group_list
         }
         Err(e) => {
-            log_error!("读取解压目录失败: {:?}", e);
+            log_error!("读取maps目录失败: {:?}", e);
             return Err(format!("读取目录失败: {:?}", e));
         }
     };
 
-    log_info!("找到{}个以$nmd_开头的文件", files.len());
-    Ok(serde_json::Value::Array(files))
+    log_info!("找到{}个分组", groups.len());
+    Ok(serde_json::Value::Array(groups))
 }
 
 /// 打开服务器列表窗口
@@ -286,28 +310,15 @@ pub fn open_server_list_window(app_handle: AppHandle) -> Result<String, String> 
 
             // 从嵌入式资源中读取JavaScript代码并执行
             std::thread::spawn(move || {
-                // 使用根据构建模式选择的JavaScript文件
-
                 // 将字节数组转换为字符串
-                let js_code = match std::str::from_utf8(SERVER_LIST_BUTTON_JS) {
-                    Ok(content) => content.to_string(),
-                    Err(e) => {
-                        log_error!("无法解析server-list-button.js文件内容: {:?}", e);
-                        // 如果无法解析文件，使用内联备份代码
-                        r#"
-                        (function() {
-                            try {
-                                const button = document.querySelector('#app-container > div > section > main > div > form > div > div > button');
-                                if (button) {
-                                    button.click();
-                                }
-                            } catch (e) {
-                                console.error('Nyaser Maps Downloader: 执行按钮点击时出错:', e);
-                            }
-                        })();
-                        "#.to_string()
-                    }
-                };
+                let js_code =
+                    match std::str::from_utf8(include_bytes!("../asset/serverlist/main.js")) {
+                        Ok(content) => content.to_string(),
+                        Err(e) => {
+                            log_error!("无法解析serverlist/main.js文件内容: {:?}", e);
+                            return;
+                        }
+                    };
 
                 // 执行JavaScript代码
                 if let Err(e) = window.eval(&js_code) {
@@ -325,42 +336,31 @@ pub fn open_server_list_window(app_handle: AppHandle) -> Result<String, String> 
     }
 }
 
-/// 删除指定的nmd文件
+/// 删除指定的文件（在 /maps 目录下）
 ///
 /// # 参数
+/// - `group_name`: 文件所在的组名（子文件夹名）
 /// - `file_name`: 要删除的文件名
 ///
 /// # 返回值
 /// - 成功时返回包含成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 #[tauri::command]
-pub fn delete_nmd_file(file_name: String) -> Result<String, String> {
-    log_info!("接收到删除nmd文件请求: {}", file_name);
+pub fn delete_map_file(group_name: String, file_name: String) -> Result<String, String> {
+    log_info!("接收到删除文件请求: 组={}, 文件={}", group_name, file_name);
 
-    // 验证文件名格式
-    if !file_name.starts_with("$nmd_") {
-        log_error!("无效的文件名格式: {}", file_name);
-        return Err("只能删除以$nmd_开头的文件".to_string());
-    }
-
-    // 获取解压目录
-    let extract_dir = match DIR_MANAGER.lock() {
-        Ok(mut manager) => {
+    // 获取 nmd_data 目录
+    let nmd_data_dir = match DIR_MANAGER.lock() {
+        Ok(manager) => {
             if manager.is_none() {
-                *manager = Some(crate::dir_manager::DirManager::new().map_err(|e| {
-                    log_error!("目录管理器初始化失败: {}", e);
-                    e
-                })?);
+                return Err("目录管理器未初始化".to_string());
             }
 
             // 获取目录路径并克隆它，避免生命周期问题
-            match manager.as_mut().unwrap().extract_dir() {
-                Some(dir) => dir.to_path_buf(),
-                None => {
-                    log_error!("无法获取解压目录");
-                    return Err("无法获取解压目录".to_string());
-                }
-            }
+            manager.as_ref().unwrap().downloads_dir().parent().ok_or_else(|| {
+                log_error!("无法获取 nmd_data 目录");
+                "无法获取 nmd_data 目录".to_string()
+            })?.to_path_buf()
         }
         Err(e) => {
             log_error!("无法锁定目录管理器: {:?}", e);
@@ -368,8 +368,8 @@ pub fn delete_nmd_file(file_name: String) -> Result<String, String> {
         }
     };
 
-    // 构建完整的文件路径
-    let file_path = extract_dir.join(&file_name);
+    // 构建完整的文件路径：nmd_data/maps/group_name/file_name
+    let file_path = nmd_data_dir.join("maps").join(&group_name).join(&file_name);
 
     // 检查文件是否存在
     if !file_path.exists() {
@@ -430,7 +430,27 @@ pub async fn install(
     // 如果目录管理器尚未初始化，则进行初始化
     if manager.is_none() {
         log_info!("目录管理器未初始化，开始初始化...");
-        *manager = Some(crate::dir_manager::DirManager::new().map_err(|e| {
+
+        // 尝试从配置文件读取 nmd_data 目录
+        let nmd_data_dir = crate::config_manager::get_data_dir(&app_handle)?;
+
+        // 根据配置创建目录管理器
+        let dir_manager = if let Some(data_dir) = nmd_data_dir {
+            log_info!("使用配置的 nmd_data 目录: {}", data_dir);
+            crate::dir_manager::DirManager::with_nmd_data_dir(std::path::PathBuf::from(data_dir))
+        } else {
+            // 没有配置 nmd_data 目录，弹窗要求配置
+            log_warn!("未配置 nmd_data 目录，弹窗要求配置");
+            show_dialog(
+                &app_handle,
+                "请先配置数据存储目录。\n\n在文件管理器窗口中点击\"修改目录\"按钮进行配置。",
+                MessageDialogKind::Warning,
+                "未配置数据目录",
+            );
+            return Err("未配置数据存储目录，请先配置".to_string());
+        };
+
+        *manager = Some(dir_manager.map_err(|e| {
             log_error!("目录管理器初始化失败: {}", e);
             // 显示错误对话框
             show_dialog(
@@ -444,25 +464,20 @@ pub async fn install(
         log_info!("目录管理器初始化成功");
     }
 
-    // 获取解压目录路径
+    // 获取解压目录路径 - 使用 nmd_data/maps 而不是 L4D2 的 addons 目录
     log_debug!("尝试获取解压目录...");
-    let extract_dir = manager
-        .as_mut()
+    let nmd_data_dir = manager
+        .as_ref()
         .unwrap()
-        .extract_dir()
+        .downloads_dir()
+        .parent()
         .ok_or_else(|| {
-            log_error!("无法获取解压目录");
-            // 显示错误对话框
-            show_dialog(
-                &app_handle,
-                "无法获取解压目录",
-                MessageDialogKind::Error,
-                "错误",
-            );
-            "无法获取解压目录".to_string()
-        })?
-        .to_string_lossy()
-        .to_string();
+            log_error!("无法获取 nmd_data 目录");
+            "无法获取 nmd_data 目录".to_string()
+        })?;
+    
+    let maps_dir = nmd_data_dir.join("maps");
+    let extract_dir = maps_dir.to_string_lossy().to_string();
     log_info!("解压目录设置为: {}", extract_dir);
 
     // 生成唯一的任务ID
@@ -498,7 +513,10 @@ pub async fn install(
     {
         let mut queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
         queue.add_task(task.id.clone(), task);
-        log_info!("任务已添加到下载队列，当前队列长度: {}", queue.waiting_tasks.len());
+        log_info!(
+            "任务已添加到下载队列，当前队列长度: {}",
+            queue.waiting_tasks.len()
+        );
     }
 
     // 启动下载队列处理（确保队列处理逻辑正在运行）
@@ -520,7 +538,10 @@ pub async fn install(
     // 额外的安全检查：如果队列不为空，但活跃任务为0，可能表示处理逻辑出现问题
     {
         let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
-        if !queue.waiting_tasks.is_empty() && queue.active_tasks.is_empty() && queue.processing_started {
+        if !queue.waiting_tasks.is_empty()
+            && queue.active_tasks.is_empty()
+            && queue.processing_started
+        {
             log_warn!("下载队列有任务但无活跃任务，可能需要重置处理状态");
             // 释放锁后重新启动处理（避免死锁）
             drop(queue);

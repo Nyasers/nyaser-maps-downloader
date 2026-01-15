@@ -7,13 +7,6 @@ const packageJsonPath = path.join(rootDir, "package.json");
 const tauriConfPath = path.join(rootDir, "src-tauri", "tauri.conf.json");
 const cargoTomlPath = path.join(rootDir, "src-tauri", "Cargo.toml");
 
-// 获取当前环境模式（development或production）
-function getEnvironmentMode() {
-  // 从环境变量或命令行参数中获取环境模式
-  const mode = process.env.NODE_ENV || "production";
-  return mode.toLowerCase();
-}
-
 // 读取package.json获取版本号
 function getVersionFromPackageJson() {
   try {
@@ -31,21 +24,13 @@ function updateTauriConf(version) {
     const tauriConf = JSON.parse(fs.readFileSync(tauriConfPath, "utf-8"));
     tauriConf.version = version;
 
-    // 根据环境模式设置不同的frontendDist路径
-    const mode = getEnvironmentMode();
-    if (mode === "development") {
-      tauriConf.build.frontendDist = "../src/html/frontend";
-    } else {
-      tauriConf.build.frontendDist = "./asset/html/frontend";
-    }
-
     fs.writeFileSync(
       tauriConfPath,
       JSON.stringify(tauriConf, null, 2) + "\n",
       "utf-8"
     );
     console.log(
-      `已更新${tauriConfPath}中的版本号为${version}，环境模式: ${mode}，frontendDist: ${tauriConf.build.frontendDist}`
+      `已更新${tauriConfPath}中的版本号为${version}，frontendDist: ${tauriConf.build.frontendDist}`
     );
   } catch (error) {
     console.error("更新tauri.conf.json失败:", error);

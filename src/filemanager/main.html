@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>文件管理器 - Nyaser Maps Downloader</title>
+    <link rel="stylesheet" href="http://asset.localhost/filemanager/main.css" />
+    <script src="http://asset.localhost/filemanager/main.js"></script>
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>Nyaser Maps Downloader - 文件管理器</h1>
+      <div class="data-dir-config">
+        <div class="data-dir-info">
+          <label for="dataDir">数据存储目录：</label>
+          <span id="dataDir">正在加载...</span>
+        </div>
+        <button class="change-dir-btn" id="changeDirBtn">修改目录</button>
+      </div>
+      <div class="action-buttons">
+        <button class="refresh-btn" id="refreshBtn">刷新文件列表</button>
+        <button class="select-all-btn" id="selectAllBtn">全选</button>
+        <button class="batch-delete-btn" id="batchDeleteBtn" disabled>
+          批量删除
+        </button>
+      </div>
+      <div class="file-list" id="fileList">
+        <p class="no-files">正在加载文件列表...</p>
+      </div>
+    </div>
+
+    <template id="groupItemTemplate">
+      <div class="group-item">
+        <div class="group-header" data-group="{{groupKey}}">
+          <div class="group-checkbox-container">
+            <label class="file-checkbox-container">
+              <input
+                type="checkbox"
+                class="group-checkbox"
+                data-group="{{groupKey}}"
+              />
+              <span class="checkbox-custom"></span>
+            </label>
+            <span class="group-toggle">▶</span>
+          </div>
+          <div class="group-info">{{displayGroupName}}</div>
+          <div class="group-stats">{{fileCount}} 个文件 · {{totalSize}}</div>
+          <div class="group-actions"></div>
+          <button class="delete-btn group-delete-btn" data-group="{{groupKey}}">
+            删除
+          </button>
+        </div>
+        <div class="group-content" id="{{groupId}}">
+          <div class="group-files">
+            <!-- 文件项将动态插入这里 -->
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <template id="fileItemTemplate">
+      <div class="file-item" data-group="{{groupKey}}">
+        <div class="file-name">{{displayName}}</div>
+        <div class="file-size">{{fileSize}}</div>
+      </div>
+    </template>
+  </body>
+</html>

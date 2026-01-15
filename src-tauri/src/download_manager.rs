@@ -21,6 +21,7 @@ use crate::{
     init::is_app_shutting_down,
     log_debug, log_error, log_info, log_warn,
     queue_manager::{process_queue, TaskQueue},
+    utils::get_file_name,
 };
 
 /// 下载任务结构体 - 表示一个地图下载任务的基本信息
@@ -534,12 +535,23 @@ pub async fn download_and_extract(
     }
 
     // 创建解压任务并添加到解压队列
+    // 从URL中提取文件名，然后提取压缩包名称（不含扩展名）
+    let archive_name = get_file_name(url)
+        .and_then(|filename| {
+            std::path::Path::new(&filename)
+                .file_stem()
+                .and_then(|os_str| os_str.to_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
     let extract_task = ExtractTask {
-        id: uuid::Uuid::new_v4().to_string(), // 生成唯一的解压任务ID
+        id: uuid::Uuid::new_v4().to_string(),
         file_path: file_path.clone(),
         extract_dir: extract_dir.to_string(),
         app_handle: app_handle.clone(),
         download_task_id: task_id.to_string(),
+        archive_name,
     };
 
     let extract_task_id = extract_task.id.clone();

@@ -1246,8 +1246,7 @@ pub fn cleanup_aria2c_resources() {
     std::thread::sleep(std::time::Duration::from_millis(500));
 
     // 清理可能残留的aria2临时文件
-    if let Ok(temp_dir) = crate::dir_manager::get_global_temp_dir() {
-        let downloads_dir = temp_dir.join("downloads");
+    if let Ok(downloads_dir) = crate::dir_manager::get_global_downloads_dir() {
         if downloads_dir.exists() {
             log_info!(
                 "检查并清理下载目录中的aria2临时文件: {}",
@@ -1275,54 +1274,54 @@ pub fn cleanup_aria2c_resources() {
     log_info!("aria2c资源清理完成");
 }
 
-// 从嵌入式资源中释放aria2c.exe到统一的临时目录
+// 从嵌入式资源中释放aria2c.exe到二进制目录
 //
 // 这是一个内部辅助函数，仅在需要时被调用
 fn release_aria2c_from_resource() -> Option<PathBuf> {
     // 嵌入aria2c.exe作为资源
     const ARIA2C_BYTES: &[u8] = include_bytes!("../bin/aria2c.exe");
 
-    // 获取统一的临时目录
-    let temp_dir = match crate::dir_manager::get_global_temp_dir() {
+    // 获取二进制目录
+    let bin_dir = match crate::dir_manager::get_global_bin_dir() {
         Ok(dir) => dir,
         Err(err) => {
-            eprintln!("无法获取临时目录: {:?}", err);
+            eprintln!("无法获取二进制目录: {:?}", err);
             return None;
         }
     };
 
-    // 释放资源到临时文件
-    let temp_path = temp_dir.join("aria2c.exe");
-    if let Err(err) = fs::write(&temp_path, ARIA2C_BYTES) {
-        eprintln!("无法写入aria2c.exe到临时目录: {:?}", err);
+    // 释放资源到二进制目录
+    let bin_path = bin_dir.join("aria2c.exe");
+    if let Err(err) = fs::write(&bin_path, ARIA2C_BYTES) {
+        eprintln!("无法写入aria2c.exe到二进制目录: {:?}", err);
         return None;
     }
 
-    Some(temp_path)
+    Some(bin_path)
 }
 
 /// 获取aria2c可执行文件的路径
 ///
 /// 该函数按以下优先级查找aria2c可执行文件:
-/// 1. 首先检查统一临时目录中是否存在aria2c.exe
-/// 2. 如果不存在，尝试从嵌入式资源中释放aria2c.exe到临时目录
+/// 1. 首先检查二进制目录中是否存在aria2c.exe
+/// 2. 如果不存在，尝试从嵌入式资源中释放aria2c.exe到二进制目录
 /// 3. 如果上述方法失败，尝试使用相对路径bin/aria2c.exe
 /// 4. 作为最后的回退，仅使用程序名"aria2c"（依赖PATH环境变量）
 pub fn get_aria2c_path() -> PathBuf {
-    // 尝试使用统一的临时目录
-    if let Ok(temp_dir) = crate::dir_manager::get_global_temp_dir() {
-        let aria2c_temp_path = temp_dir.join("aria2c.exe");
+    // 尝试使用二进制目录
+    if let Ok(bin_dir) = crate::dir_manager::get_global_bin_dir() {
+        let aria2c_bin_path = bin_dir.join("aria2c.exe");
 
-        if aria2c_temp_path.exists() {
-            return aria2c_temp_path;
+        if aria2c_bin_path.exists() {
+            return aria2c_bin_path;
         }
 
-        // 如果临时目录中不存在，则尝试释放嵌入式资源
+        // 如果二进制目录中不存在，则尝试释放嵌入式资源
         if let Some(path) = release_aria2c_from_resource() {
             return path;
         }
     } else {
-        eprintln!("获取临时目录失败，使用回退方案");
+        eprintln!("获取二进制目录失败，使用回退方案");
     }
 
     // 作为最后的回退，尝试使用相对路径
@@ -1454,21 +1453,17 @@ pub async fn download_via_aria2(
         Err("下载任务正在等待引擎初始化，请稍后重试".to_string())
     } else {
         // aria2c已初始化完成，直接执行下载
-        // 获取统一的临时目录
-        let temp_dir = crate::dir_manager::get_global_temp_dir()?;
-        log_debug!("[{}] 获取临时目录: {}", task_id, temp_dir.to_string_lossy());
+        // 获取目录管理器
+        let manager = crate::dir_manager::DIR_MANAGER
+            .lock()
+            .map_err(|e| format!("无法锁定目录管理器: {:?}", e))?;
 
-        // 创建下载子目录
-        let download_dir = temp_dir.join("downloads");
-        fs::create_dir_all(&download_dir).map_err(|e| {
-            log_error!("[{}] 创建下载目录失败: {}", task_id, e);
-            format!("创建下载目录失败: {}", e)
-        })?;
-        log_info!(
-            "[{}] 下载目录准备就绪: {}",
-            task_id,
-            download_dir.to_string_lossy()
-        );
+        if manager.is_none() {
+            return Err("目录管理器未初始化".to_string());
+        }
+
+        let downloads_dir = manager.as_ref().unwrap().downloads_dir();
+        log_debug!("[{}] 获取下载目录: {}", task_id, downloads_dir.to_string_lossy());
 
         // 获取文件扩展名（如果有）
         let extension = match url.split('/').last() {
@@ -1497,21 +1492,12 @@ pub async fn download_via_aria2(
         log_debug!("[{}] 生成随机文件名: {}", task_id, filename);
 
         // 构建文件完整路径
-        let file_path = download_dir.join(&filename);
+        let file_path = downloads_dir.join(&filename);
         log_debug!(
             "[{}] 文件保存路径: {}",
             task_id,
             file_path.to_string_lossy()
         );
-
-        // 获取下载目录的路径字符串
-        let download_dir_str = download_dir
-            .to_str()
-            .ok_or_else(|| {
-                log_error!("[{}] 无效的目录路径", task_id);
-                "无效的目录路径".to_string()
-            })?
-            .to_string();
 
         // 转换为线程安全的路径字符串
         let url_owned = url.to_string();
@@ -1519,12 +1505,22 @@ pub async fn download_via_aria2(
         let app_handle_for_events = app_handle.clone();
         let task_id_clone = task_id.to_string();
         let filename_clone = filename.clone();
+        let downloads_dir_clone = downloads_dir.clone();
 
         // 在后台线程中运行下载，避免阻塞主线程
         let (tx, rx) = mpsc::channel();
 
         std::thread::spawn(move || {
             log_info!("[{}] 启动后台下载线程", task_id_clone);
+
+            // 获取下载目录的路径字符串
+            let download_dir_str = downloads_dir_clone
+                .to_str()
+                .ok_or_else(|| {
+                    log_error!("[{}] 无效的目录路径", task_id_clone);
+                    "无效的目录路径".to_string()
+                })
+                .unwrap();
 
             // 确保RPC管理器已初始化
             if let Err(e) = get_rpc_manager() {

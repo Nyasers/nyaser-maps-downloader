@@ -36,9 +36,7 @@ use crate::{
     aria2c::{cleanup_aria2c_resources, initialize_aria2c_backend},
     config_manager::get_data_dir,
     dialog_manager::{show_blocking_dialog, show_dialog},
-    dir_manager::{
-        cleanup_temp_dir, get_global_temp_dir, get_l4d2_addons_dir, set_global_extract_dir,
-    },
+    dir_manager::{get_l4d2_addons_dir, set_global_addons_dir},
     download_manager,
     extract_manager::initialize_7z_resources,
     log_error, log_info, log_warn,
@@ -117,10 +115,47 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
     // 保存全局应用句柄，用于资源清理时关闭窗口
     *GLOBAL_APP_HANDLE.write().unwrap() = Some(app_handle.clone());
 
-    // 初始化全局临时目录管理器
-    if let Err(e) = get_global_temp_dir() {
-        eprintln!("初始化临时目录失败: {}", e);
-    }
+    // 读取数据存储目录配置
+    let nmd_data_dir = get_data_dir(&app_handle)?;
+
+    // 初始化目录管理器
+    let dir_manager = match nmd_data_dir {
+        Some(ref data_dir) => {
+            log_info!("使用配置的 nmd_data 目录: {}", data_dir);
+            crate::dir_manager::DirManager::with_nmd_data_dir(std::path::PathBuf::from(data_dir))
+        }
+        None => {
+            // 没有配置 nmd_data 目录，弹窗要求配置
+            log_warn!("未配置 nmd_data 目录，弹窗要求配置");
+            show_dialog(
+                &app_handle,
+                "请先配置数据存储目录。\n\n在文件管理器窗口中点击\"修改目录\"按钮进行配置。",
+                MessageDialogKind::Warning,
+                "未配置数据目录",
+            );
+            return Err("未配置数据存储目录，请先配置".into());
+        }
+    };
+
+    // 设置全局目录管理器
+    let dir_manager = match dir_manager {
+        Ok(dm) => dm,
+        Err(e) => {
+            eprintln!("初始化目录管理器失败: {}", e);
+            show_dialog(
+                &app_handle,
+                &format!("初始化目录管理器失败: {}", e),
+                MessageDialogKind::Error,
+                "初始化失败",
+            );
+            return Err(e.into());
+        }
+    };
+
+    {
+        let mut guard = crate::dir_manager::DIR_MANAGER.lock().unwrap();
+        *guard = Some(dir_manager);
+    } // 锁在这里释放
 
     // 初始化aria2c后端
     match initialize_aria2c_backend() {
@@ -144,11 +179,15 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 初始化7z资源（与aria2c一样，在应用启动时释放）
+    log_info!("开始初始化 7z 资源...");
     initialize_7z_resources();
+    log_info!("7z 资源初始化完成");
 
     // 尝试自动获取 Left 4 Dead 2 的addons目录
+    log_info!("开始查找 Left 4 Dead 2 addons 目录...");
     match get_l4d2_addons_dir() {
         Ok(addons_dir) => {
+            log_info!("成功找到 L4D2 addons 目录: {}", addons_dir);
             // 发送目录更改事件到前端
             let _ = app.emit_to(
                 "main",
@@ -160,38 +199,48 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
             );
 
             // 读取数据存储目录
-            let title_text = match get_data_dir(&app_handle) {
-                Ok(Some(data_dir)) => data_dir,
-                _ => addons_dir.clone(),
+            let title_text = match nmd_data_dir {
+                Some(data_dir) => data_dir,
+                None => addons_dir.clone(),
             };
 
             // 更新窗口标题，优先显示数据存储目录
+            log_info!("更新窗口标题: {}", title_text);
             update_window_title(&app_handle, &title_text);
 
-            // 设置全局解压目录，用于下载后解压文件
-            set_global_extract_dir(&addons_dir)?;
+            // 设置全局 L4D2 addons 目录，用于后续可能的操作
+            log_info!("设置全局 L4D2 addons 目录: {}", addons_dir);
+            set_global_addons_dir(&addons_dir)?;
 
             // 初始化检查完成，没有错误，显示主窗口
+            log_info!("准备显示主窗口...");
             if let Some(window) = app.get_webview_window("main") {
+                log_info!("找到主窗口，开始居中和显示...");
                 // 使窗口在屏幕上居中
                 if let Err(e) = center_window_on_screen(&window) {
                     eprintln!("无法将窗口居中: {:?}", e);
+                    log_error!("无法将窗口居中: {:?}", e);
                 }
-
                 if let Err(e) = window.show() {
                     eprintln!("无法显示窗口: {:?}", e);
+                    log_error!("无法显示窗口: {:?}", e);
+                } else {
+                    log_info!("主窗口已显示");
                 }
+            } else {
+                log_error!("未找到主窗口");
             }
         }
         Err(e) => {
+            log_error!("查找 L4D2 addons 目录失败: {}", e);
             // 在退出前显示一个错误对话框，提示无法找到L4D2目录
             show_blocking_dialog(&app.handle(), &e, "错误", MessageDialogKind::Error);
-
             // 显示对话框后，立即退出应用程序
             exit(1);
         }
     };
 
+    log_info!("应用初始化完成");
     Ok(())
 }
 
@@ -229,8 +278,6 @@ pub fn cleanup_app_resources() {
 
     // 清理aria2c资源
     cleanup_aria2c_resources();
-    // 清理临时目录
-    cleanup_temp_dir();
 
     log_info!("资源清理完成，进程即将退出...");
 
