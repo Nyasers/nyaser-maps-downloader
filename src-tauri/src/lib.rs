@@ -33,13 +33,19 @@ fn asset_protocol_handler<T: tauri::Runtime>(
             let result = match GLOBAL_APP_HANDLE.read() {
                 Ok(guard) => {
                     if let Some(ref app_handle) = *guard {
-                        match app_handle
-                            .path()
-                            .resolve(&path, tauri::path::BaseDirectory::Resource)
-                        {
+                        match app_handle.path().resolve(
+                            "assets/".to_string() + &path,
+                            tauri::path::BaseDirectory::Resource,
+                        ) {
                             Ok(resource_path) => {
+                                let resource_path = resource_path
+                                    .to_str()
+                                    .unwrap()
+                                    .split_once("\\\\?\\")
+                                    .unwrap()
+                                    .1;
                                 log_info!("资源路径: {:?}", resource_path);
-                                Some(std::fs::read(&resource_path))
+                                Some(std::fs::read(resource_path))
                             }
                             Err(e) => {
                                 log_error!("解析资源路径失败: {:?}", e);

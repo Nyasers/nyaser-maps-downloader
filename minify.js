@@ -10,6 +10,7 @@ import {
   existsSync,
   mkdirSync,
   statSync,
+  rmdirSync,
 } from "fs";
 
 // 导入压缩配置选项
@@ -20,9 +21,12 @@ const cssnano = cssnanoPlugin();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 获取src和asset目录路径
+// 获取src和assets目录路径
 const srcDir = path.join(__dirname, "src");
-const assetPath = path.join(__dirname, "src-tauri", "asset");
+const assetsPath = path.join(__dirname, "src-tauri", "assets");
+if (existsSync(assetsPath)) {
+  rmdirSync(assetsPath, { recursive: true });
+}
 
 // 获取当前环境模式（development或production）
 function getEnvironmentMode() {
@@ -65,8 +69,8 @@ function generateOutputPath(inputPath) {
   // 计算相对于src目录的路径
   const relativePath = path.relative(srcDir, inputPath);
 
-  // 构建asset目录中的目标路径，保持相同的目录结构
-  const filePath = path.join(assetPath, relativePath);
+  // 构建assets目录中的目标路径，保持相同的目录结构
+  const filePath = path.join(assetsPath, relativePath);
 
   // 确保目标目录存在
   const fileDir = path.dirname(filePath);
@@ -174,7 +178,7 @@ async function minifyFiles() {
 
         // 打印单个文件的压缩结果，显示相对路径
         const relativeFilePath = path.relative(srcDir, file);
-        const relativeOutputPath = path.relative(assetPath, outputPath);
+        const relativeOutputPath = path.relative(assetsPath, outputPath);
         console.log(`✅ 已压缩: ${relativeFilePath}`);
         console.log(`   📦 原始大小: ${formatFileSize(originalSize)}`);
         console.log(`   📦 压缩大小: ${formatFileSize(minifiedSize)}`);
@@ -233,7 +237,7 @@ async function minifyFiles() {
 
         // 打印单个文件的压缩结果，显示相对路径
         const relativeFilePath = path.relative(srcDir, file);
-        const relativeOutputPath = path.relative(assetPath, outputPath);
+        const relativeOutputPath = path.relative(assetsPath, outputPath);
         console.log(`✅ 已压缩: ${relativeFilePath}`);
         console.log(`   📦 原始大小: ${formatFileSize(originalSize)}`);
         console.log(`   📦 压缩大小: ${formatFileSize(minifiedSize)}`);
@@ -294,7 +298,7 @@ async function minifyFiles() {
 
         // 打印单个文件的压缩结果，显示相对路径
         const relativeFilePath = path.relative(srcDir, file);
-        const relativeOutputPath = path.relative(assetPath, outputPath);
+        const relativeOutputPath = path.relative(assetsPath, outputPath);
         console.log(`✅ 已压缩: ${relativeFilePath}`);
         console.log(`   📦 原始大小: ${formatFileSize(originalSize)}`);
         console.log(`   📦 压缩大小: ${formatFileSize(minifiedSize)}`);

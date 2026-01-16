@@ -343,7 +343,7 @@ pub fn open_server_list_window(app_handle: AppHandle) -> Result<String, String> 
             std::thread::spawn(move || {
                 // 将字节数组转换为字符串
                 let js_code =
-                    match std::str::from_utf8(include_bytes!("../asset/serverlist/main.js")) {
+                    match std::str::from_utf8(include_bytes!("../assets/serverlist/main.js")) {
                         Ok(content) => content.to_string(),
                         Err(e) => {
                             log_error!("无法解析serverlist/main.js文件内容: {:?}", e);
