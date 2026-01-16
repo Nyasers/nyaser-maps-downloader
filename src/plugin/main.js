@@ -581,7 +581,9 @@
       link.setAttribute("rel", "stylesheet");
       link.setAttribute(
         "href",
-        window.__TAURI__.core.convertFileSrc("plugin/main.css", "asset")
+        decodeURIComponent(
+          window.__TAURI__.core.convertFileSrc("plugin/main.css", "asset")
+        )
       );
       document.head.appendChild(link);
 

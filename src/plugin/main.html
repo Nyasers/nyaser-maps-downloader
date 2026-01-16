@@ -92,7 +92,9 @@
       waitForTauriApi()
         .then(() =>
           import(
-            window.__TAURI__.core.convertFileSrc("plugin/main.js", "asset")
+            decodeURIComponent(
+              window.__TAURI__.core.convertFileSrc("plugin/main.js", "asset")
+            )
           )
         )
         .catch(() => {

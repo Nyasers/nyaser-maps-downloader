@@ -10,7 +10,6 @@ use tauri::{
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_updater::UpdaterExt;
 use tokio::time::{sleep, Duration};
-use urlencoding::decode;
 
 // 导入子模块
 mod aria2c;
@@ -33,7 +32,6 @@ fn asset_protocol_handler<T: Runtime>(
     responder: UriSchemeResponder,
 ) {
     let path = request.uri().path().trim_start_matches('/').to_string();
-    let path = decode(&path).unwrap().to_string();
     log_info!("asset协议请求: {}", path);
 
     async_runtime::spawn(async move {

@@ -6,8 +6,12 @@
     <title>文件管理器 - Nyaser Maps Downloader</title>
     <script>
       const convertFileSrc = window.__TAURI__.core.convertFileSrc;
-      const mainCss = convertFileSrc("filemanager/main.css", "asset");
-      const mainJs = convertFileSrc("filemanager/main.js", "asset");
+      const mainCss = decodeURIComponent(
+        convertFileSrc("filemanager/main.css", "asset")
+      );
+      const mainJs = decodeURIComponent(
+        convertFileSrc("filemanager/main.js", "asset")
+      );
       const link = document.createElement("link");
       link.setAttribute("rel", "stylesheet");
       link.setAttribute("href", mainCss);
