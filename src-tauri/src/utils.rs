@@ -1,26 +1,26 @@
 use regex::Regex;
 use urlencoding::decode;
 
+lazy_static::lazy_static! {
+    static ref BAIDUPCS_URL_REGEX: Regex = Regex::new(r"^https?://.+\.baidupcs\.com/file/.+$").unwrap();
+    static ref FIN_PARAM_REGEX: Regex = Regex::new(r"&fin=([^&]+)").unwrap();
+    static ref FILENAME_REGEX: Regex = Regex::new(r"\/([^\/?]+)(\?.*)?$").unwrap();
+}
+
 /// 检查URL是否为百度PCS链接
 pub fn is_baidupcs_link(url: &str) -> bool {
-    let re = Regex::new(r"^https?://.+\.baidupcs\.com/file/.+$").unwrap();
-    re.is_match(url)
+    BAIDUPCS_URL_REGEX.is_match(url)
 }
 
 /// 从百度PCS链接中提取文件名
 pub fn get_file_name_from_baidupcs(url: &str) -> Option<String> {
-    // 创建正则表达式匹配 &fin= 参数
-    let re = Regex::new(r"&fin=([^&]+)").unwrap();
-
-    if let Some(caps) = re.captures(url) {
+    if let Some(caps) = FIN_PARAM_REGEX.captures(url) {
         if let Some(encoded_name) = caps.get(1) {
             let encoded_str = encoded_name.as_str();
-            // 先处理+符号，将其替换为%20，然后再进行URL解码
             let fixed_encoded = encoded_str.replace('+', "%20");
             if let Ok(decoded) = decode(&fixed_encoded) {
                 return Some(decoded.to_string());
             } else {
-                // 如果解码失败，尝试直接解码原始字符串
                 if let Ok(decoded) = decode(encoded_str) {
                     return Some(decoded.to_string());
                 }
@@ -31,9 +31,7 @@ pub fn get_file_name_from_baidupcs(url: &str) -> Option<String> {
 }
 
 pub fn get_file_name_from_pathname(url: &str) -> Option<String> {
-    let re = Regex::new(r"\/([^\/?]+)(\?.*)?$").unwrap();
-
-    if let Some(caps) = re.captures(url) {
+    if let Some(caps) = FILENAME_REGEX.captures(url) {
         if let Some(name) = caps.get(1) {
             if let Ok(decoded) = decode(name.as_str()) {
                 return Some(decoded.to_string());
