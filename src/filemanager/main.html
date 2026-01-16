@@ -16,17 +16,29 @@
           <label for="dataDir">数据存储目录：</label>
           <span id="dataDir">正在加载...</span>
         </div>
-        <button class="change-dir-btn" id="changeDirBtn">修改目录</button>
+        <button class="change-dir-btn" id="changeDirBtn">修改</button>
       </div>
       <div class="action-buttons">
-        <button class="refresh-btn" id="refreshBtn">刷新文件列表</button>
+        <button class="refresh-btn" id="refreshBtn">刷新</button>
         <button class="select-all-btn" id="selectAllBtn">全选</button>
+        <button class="select-mounted-btn" id="selectMountedBtn">
+          全选已载
+        </button>
+        <button class="select-unmounted-btn" id="selectUnmountedBtn">
+          全选未载
+        </button>
+        <button class="batch-mount-btn" id="batchMountBtn" disabled>
+          挂载
+        </button>
+        <button class="batch-unmount-btn" id="batchUnmountBtn" disabled>
+          卸载
+        </button>
         <button class="batch-delete-btn" id="batchDeleteBtn" disabled>
-          批量删除
+          删除
         </button>
       </div>
       <div class="file-list" id="fileList">
-        <p class="no-files">正在加载文件列表...</p>
+        <p class="no-files">正在加载...</p>
       </div>
     </div>
 
@@ -54,10 +66,13 @@
             >
               {{groupMountBtnText}}
             </button>
+            <button
+              class="delete-btn group-delete-btn"
+              data-group="{{groupKey}}"
+            >
+              删除
+            </button>
           </div>
-          <button class="delete-btn group-delete-btn" data-group="{{groupKey}}">
-            删除
-          </button>
         </div>
         <div class="group-content" id="{{groupId}}">
           <div class="group-files"></div>

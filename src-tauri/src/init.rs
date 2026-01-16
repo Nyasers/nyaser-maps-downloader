@@ -125,15 +125,8 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
             crate::dir_manager::DirManager::with_nmd_data_dir(std::path::PathBuf::from(data_dir))
         }
         None => {
-            // 没有配置 nmd_data 目录，弹窗要求配置
-            log_warn!("未配置 nmd_data 目录，弹窗要求配置");
-            show_dialog(
-                &app_handle,
-                "请先配置数据存储目录。\n\n在文件管理器窗口中点击\"修改目录\"按钮进行配置。",
-                MessageDialogKind::Warning,
-                "未配置数据目录",
-            );
-            return Err("未配置数据存储目录，请先配置".into());
+            log_warn!("未配置 nmd_data 目录，等待前端配置");
+            crate::dir_manager::DirManager::new()
         }
     };
 
@@ -157,31 +150,36 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
         *guard = Some(dir_manager);
     } // 锁在这里释放
 
-    // 初始化aria2c后端
-    match initialize_aria2c_backend() {
-        Err(e) => {
-            eprintln!("初始化aria2c后端失败: {}", e);
-            // 显示初始化失败对话框
-            show_dialog(
-                &app.handle(),
-                &format!("初始化aria2c下载引擎失败: {}", e),
-                MessageDialogKind::Error,
-                "初始化失败",
-            );
-        }
-        Ok(()) => {
-            // 尝试加载之前保存的下载队列
-            if let Err(e) = download_manager::load_download_queue() {
-                eprintln!("加载下载队列失败: {}", e);
-                log_warn!("加载下载队列失败: {}", e);
+    // 只有配置了 nmd_data 目录才初始化 aria2c 后端和 7z 资源
+    if nmd_data_dir.is_some() {
+        // 初始化aria2c后端
+        match initialize_aria2c_backend() {
+            Err(e) => {
+                eprintln!("初始化aria2c后端失败: {}", e);
+                // 显示初始化失败对话框
+                show_dialog(
+                    &app.handle(),
+                    &format!("初始化aria2c下载引擎失败: {}", e),
+                    MessageDialogKind::Error,
+                    "初始化失败",
+                );
+            }
+            Ok(()) => {
+                // 尝试加载之前保存的下载队列
+                if let Err(e) = download_manager::load_download_queue() {
+                    eprintln!("加载下载队列失败: {}", e);
+                    log_warn!("加载下载队列失败: {}", e);
+                }
             }
         }
-    }
 
-    // 初始化7z资源（与aria2c一样，在应用启动时释放）
-    log_info!("开始初始化 7z 资源...");
-    initialize_7z_resources();
-    log_info!("7z 资源初始化完成");
+        // 初始化7z资源（与aria2c一样，在应用启动时释放）
+        log_info!("开始初始化 7z 资源...");
+        initialize_7z_resources();
+        log_info!("7z 资源初始化完成");
+    } else {
+        log_info!("未配置 nmd_data 目录，跳过 aria2c 和 7z 资源初始化");
+    }
 
     // 尝试自动获取 Left 4 Dead 2 的addons目录
     log_info!("开始查找 Left 4 Dead 2 addons 目录...");

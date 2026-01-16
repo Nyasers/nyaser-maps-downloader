@@ -194,12 +194,22 @@ async function loadFileList() {
       fileListElement.querySelector(".no-files")?.remove();
       // 显示全选和批量删除按钮
       document.getElementById("selectAllBtn").style.display = "inline-block";
+      document.getElementById("selectMountedBtn").style.display =
+        "inline-block";
+      document.getElementById("selectUnmountedBtn").style.display =
+        "inline-block";
       document.getElementById("batchDeleteBtn").style.display = "inline-block";
+      document.getElementById("batchMountBtn").style.display = "inline-block";
+      document.getElementById("batchUnmountBtn").style.display = "inline-block";
     } else {
       fileListElement.innerHTML = '<p class="no-files">没有找到文件</p>';
       // 隐藏全选和批量删除按钮
       document.getElementById("selectAllBtn").style.display = "none";
+      document.getElementById("selectMountedBtn").style.display = "none";
+      document.getElementById("selectUnmountedBtn").style.display = "none";
       document.getElementById("batchDeleteBtn").style.display = "none";
+      document.getElementById("batchMountBtn").style.display = "none";
+      document.getElementById("batchUnmountBtn").style.display = "none";
     }
   } catch (error) {
     console.error("加载文件列表失败:", error);
@@ -208,7 +218,167 @@ async function loadFileList() {
     ).innerHTML = `<p class="no-files" style="color: red;">加载文件列表失败: ${error.message}</p>`;
     // 隐藏全选和批量删除按钮
     document.getElementById("selectAllBtn").style.display = "none";
+    document.getElementById("selectMountedBtn").style.display = "none";
+    document.getElementById("selectUnmountedBtn").style.display = "none";
     document.getElementById("batchDeleteBtn").style.display = "none";
+    document.getElementById("batchMountBtn").style.display = "none";
+    document.getElementById("batchUnmountBtn").style.display = "none";
+  }
+}
+
+// 选中已挂载的分组
+function selectMountedGroups() {
+  const groupCheckboxes = document.querySelectorAll(".group-checkbox");
+  const groupHeaders = document.querySelectorAll(".group-header");
+
+  groupCheckboxes.forEach((checkbox) => {
+    const groupName = checkbox.getAttribute("data-group");
+    const groupHeader = document.querySelector(
+      `.group-header[data-group="${groupName}"]`
+    );
+    const mountBtn = groupHeader?.querySelector(".group-mount-btn");
+    const isMounted = mountBtn?.getAttribute("data-mounted") === "true";
+
+    checkbox.checked = isMounted;
+    updateGroupCheckboxState(groupName);
+  });
+
+  updateSelection();
+}
+
+// 选中未挂载的分组
+function selectUnmountedGroups() {
+  const groupCheckboxes = document.querySelectorAll(".group-checkbox");
+  const groupHeaders = document.querySelectorAll(".group-header");
+
+  groupCheckboxes.forEach((checkbox) => {
+    const groupName = checkbox.getAttribute("data-group");
+    const groupHeader = document.querySelector(
+      `.group-header[data-group="${groupName}"]`
+    );
+    const mountBtn = groupHeader?.querySelector(".group-mount-btn");
+    const isMounted = mountBtn?.getAttribute("data-mounted") === "true";
+
+    checkbox.checked = !isMounted;
+    updateGroupCheckboxState(groupName);
+  });
+
+  updateSelection();
+}
+
+// 批量挂载选中的分组
+async function batchMountGroups() {
+  const groupCheckboxes = document.querySelectorAll(".group-checkbox:checked");
+  const selectedGroups = Array.from(groupCheckboxes).map((cb) =>
+    cb.getAttribute("data-group")
+  );
+
+  if (selectedGroups.length === 0) {
+    await dialog.message("请先选择要挂载的分组", {
+      kind: "warning",
+      title: "提示",
+    });
+    return;
+  }
+
+  try {
+    let mountedCount = 0;
+    for (const groupKey of selectedGroups) {
+      const groupName = decodeURIComponent(groupKey);
+
+      // 检查是否已挂载
+      const groupHeader = document.querySelector(
+        `.group-header[data-group="${groupKey}"]`
+      );
+      const mountBtn = groupHeader?.querySelector(".group-mount-btn");
+      const isMounted = mountBtn?.getAttribute("data-mounted") === "true";
+
+      if (!isMounted) {
+        try {
+          await invoke("mount_group", {
+            groupName,
+          });
+          mountedCount++;
+        } catch (error) {
+          console.warn(`挂载分组 ${groupName} 失败:`, error);
+        }
+      }
+    }
+
+    // 刷新列表
+    loadFileList();
+
+    if (mountedCount > 0) {
+      await dialog.message(`已成功挂载 ${mountedCount} 个分组！`, {
+        kind: "info",
+        title: "挂载成功",
+      });
+    }
+  } catch (error) {
+    console.error("批量挂载失败:", error);
+    const errorMsg = error.message || JSON.stringify(error);
+    await dialog.message(`批量挂载失败: ${errorMsg}`, {
+      kind: "error",
+      title: "挂载失败",
+    });
+  }
+}
+
+// 批量卸载选中的分组
+async function batchUnmountGroups() {
+  const groupCheckboxes = document.querySelectorAll(".group-checkbox:checked");
+  const selectedGroups = Array.from(groupCheckboxes).map((cb) =>
+    cb.getAttribute("data-group")
+  );
+
+  if (selectedGroups.length === 0) {
+    await dialog.message("请先选择要卸载的分组", {
+      kind: "warning",
+      title: "提示",
+    });
+    return;
+  }
+
+  try {
+    let unmountedCount = 0;
+    for (const groupKey of selectedGroups) {
+      const groupName = decodeURIComponent(groupKey);
+
+      // 检查是否已挂载
+      const groupHeader = document.querySelector(
+        `.group-header[data-group="${groupKey}"]`
+      );
+      const mountBtn = groupHeader?.querySelector(".group-mount-btn");
+      const isMounted = mountBtn?.getAttribute("data-mounted") === "true";
+
+      if (isMounted) {
+        try {
+          await invoke("unmount_group", {
+            groupName,
+          });
+          unmountedCount++;
+        } catch (error) {
+          console.warn(`卸载分组 ${groupName} 失败:`, error);
+        }
+      }
+    }
+
+    // 刷新列表
+    loadFileList();
+
+    if (unmountedCount > 0) {
+      await dialog.message(`已成功卸载 ${unmountedCount} 个分组！`, {
+        kind: "info",
+        title: "卸载成功",
+      });
+    }
+  } catch (error) {
+    console.error("批量卸载失败:", error);
+    const errorMsg = error.message || JSON.stringify(error);
+    await dialog.message(`批量卸载失败: ${errorMsg}`, {
+      kind: "error",
+      title: "卸载失败",
+    });
   }
 }
 
@@ -238,16 +408,20 @@ function updateSelection() {
     (cb) => cb.checked
   ).length;
   const batchDeleteBtn = document.getElementById("batchDeleteBtn");
+  const batchMountBtn = document.getElementById("batchMountBtn");
+  const batchUnmountBtn = document.getElementById("batchUnmountBtn");
   const selectAllBtn = document.getElementById("selectAllBtn");
 
   // 更新批量删除按钮状态
   batchDeleteBtn.disabled = selectedCount === 0;
 
+  // 更新批量挂载/卸载按钮状态
+  batchMountBtn.disabled = selectedCount === 0;
+  batchUnmountBtn.disabled = selectedCount === 0;
+
   // 更新全选按钮文本
-  if (selectedCount === 0) {
-    selectAllBtn.textContent = "全选";
-  } else if (selectedCount === groupCheckboxes.length) {
-    selectAllBtn.textContent = "取消全选";
+  if (selectedCount && selectedCount === groupCheckboxes.length) {
+    selectAllBtn.textContent = "反选";
   } else {
     selectAllBtn.textContent = "全选";
   }
@@ -498,6 +672,26 @@ document.addEventListener("DOMContentLoaded", () => {
   document
     .getElementById("selectAllBtn")
     .addEventListener("click", toggleSelectAll);
+
+  // 选中已挂载按钮事件
+  document
+    .getElementById("selectMountedBtn")
+    .addEventListener("click", selectMountedGroups);
+
+  // 选中未挂载按钮事件
+  document
+    .getElementById("selectUnmountedBtn")
+    .addEventListener("click", selectUnmountedGroups);
+
+  // 批量挂载按钮事件
+  document
+    .getElementById("batchMountBtn")
+    .addEventListener("click", batchMountGroups);
+
+  // 批量卸载按钮事件
+  document
+    .getElementById("batchUnmountBtn")
+    .addEventListener("click", batchUnmountGroups);
 
   // 批量删除按钮事件
   document

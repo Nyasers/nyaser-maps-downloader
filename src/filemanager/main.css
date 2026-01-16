@@ -508,3 +508,91 @@ h1 {
   transform: none;
   box-shadow: none;
 }
+
+/* 批量操作按钮容器 */
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+/* 选中已挂载按钮 */
+.select-mounted-btn {
+  background: #4caf50;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-bottom: 15px;
+  margin-left: 10px;
+}
+
+.select-mounted-btn:hover {
+  background: #45a049;
+}
+
+/* 选中未挂载按钮 */
+.select-unmounted-btn {
+  background: #ff9800;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-bottom: 15px;
+  margin-left: 10px;
+}
+
+.select-unmounted-btn:hover {
+  background: #f57c00;
+}
+
+/* 批量挂载按钮 */
+.batch-mount-btn {
+  background: #2196f3;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-bottom: 15px;
+  margin-left: 10px;
+  display: none;
+}
+
+.batch-mount-btn:hover:not(:disabled) {
+  background: #0b7dda;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.batch-mount-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+/* 批量卸载按钮 */
+.batch-unmount-btn {
+  background: #ff9800;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-bottom: 15px;
+  margin-left: 10px;
+  display: none;
+}
+
+.batch-unmount-btn:hover:not(:disabled) {
+  background: #f57c00;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.batch-unmount-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
