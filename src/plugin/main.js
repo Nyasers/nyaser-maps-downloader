@@ -515,7 +515,36 @@
                   const savepath = await dialog.save({
                     title: "选择保存位置",
                     defaultPath: filename,
-                    filters: [{ name: "7-zip Files", extensions: ["7z"] }],
+                    filters: [
+                      {
+                        name: "Archive Files",
+                        extensions: [
+                          "7z",
+                          "zip",
+                          "rar",
+                          "tar",
+                          "gz",
+                          "bz2",
+                          "xz",
+                          "arj",
+                          "cab",
+                          "chm",
+                          "cpio",
+                          "deb",
+                          "dmg",
+                          "iso",
+                          "lzh",
+                          "lzma",
+                          "msi",
+                          "nsis",
+                          "rpm",
+                          "udf",
+                          "wim",
+                          "xar",
+                          "z",
+                        ],
+                      },
+                    ],
                   });
                   if (savepath) {
                     const saveonly = await dialog.confirm(

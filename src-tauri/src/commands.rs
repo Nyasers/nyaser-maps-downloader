@@ -117,7 +117,9 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
         if manager.is_none() {
             let dir_manager = if let Some(ref data_dir) = nmd_data_dir {
                 log_info!("使用配置的 nmd_data 目录: {}", data_dir);
-                crate::dir_manager::DirManager::with_nmd_data_dir(std::path::PathBuf::from(data_dir))
+                crate::dir_manager::DirManager::with_nmd_data_dir(std::path::PathBuf::from(
+                    data_dir,
+                ))
             } else {
                 log_warn!("未配置 nmd_data 目录，弹窗要求配置");
                 show_dialog(
@@ -339,21 +341,28 @@ pub fn open_server_list_window(app_handle: AppHandle) -> Result<String, String> 
                 }
             }
 
-            // 从嵌入式资源中读取JavaScript代码并执行
+            // 从Assets中读取JavaScript代码并执行
             std::thread::spawn(move || {
-                // 将字节数组转换为字符串
-                let js_code =
-                    match std::str::from_utf8(include_bytes!("../assets/serverlist/main.js")) {
-                        Ok(content) => content.to_string(),
-                        Err(e) => {
-                            log_error!("无法解析serverlist/main.js文件内容: {:?}", e);
-                            return;
-                        }
-                    };
+                let js_code = match crate::get_assets_path("assets/serverlist/main.js") {
+                    Ok(resource_path) => {
+                        log_debug!("读取serverlist/main.js路径: {:?}", resource_path);
+                        std::fs::read_to_string(resource_path)
+                    }
+                    Err(e) => {
+                        log_error!("无法获取serverlist/main.js路径: {:?}", e);
+                        Err(std::io::Error::new(std::io::ErrorKind::NotFound, e))
+                    }
+                };
 
-                // 执行JavaScript代码
-                if let Err(e) = window.eval(&js_code) {
-                    log_error!("在服务器列表窗口执行JavaScript失败: {:?}", e);
+                match js_code {
+                    Ok(content) => {
+                        if let Err(e) = window.eval(&content) {
+                            log_error!("在服务器列表窗口执行JavaScript失败: {:?}", e);
+                        }
+                    }
+                    Err(e) => {
+                        log_error!("无法读取serverlist/main.js文件内容: {:?}", e);
+                    }
                 }
             });
 

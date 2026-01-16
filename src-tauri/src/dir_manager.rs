@@ -26,7 +26,6 @@ lazy_static! {
 pub struct DirManager {
     addons_dir: Option<PathBuf>,
     downloads_dir: PathBuf,
-    bin_dir: PathBuf,
     maps_dir: PathBuf,
 }
 
@@ -40,7 +39,6 @@ impl DirManager {
         Ok(Self {
             addons_dir: None,
             downloads_dir: PathBuf::new(),
-            bin_dir: PathBuf::new(),
             maps_dir: PathBuf::new(),
         })
     }
@@ -58,14 +56,10 @@ impl DirManager {
         std::fs::create_dir_all(&nmd_data_dir)
             .map_err(|e| format!("无法创建 nmd_data 目录: {:?}", e))?;
 
-        // 创建 nmd_data/bin 目录
-        let bin_dir = nmd_data_dir.join("bin");
-        std::fs::create_dir_all(&bin_dir).map_err(|e| format!("无法创建 bin 目录: {:?}", e))?;
-
-        // 创建 nmd_data/bin/cache 目录（作为下载目录）
-        let downloads_dir = bin_dir.join("cache");
+        // 创建 nmd_data/cache 目录（作为下载目录）
+        let downloads_dir = nmd_data_dir.join("cache");
         std::fs::create_dir_all(&downloads_dir)
-            .map_err(|e| format!("无法创建 bin/cache 目录: {:?}", e))?;
+            .map_err(|e| format!("无法创建 cache 目录: {:?}", e))?;
 
         // 创建 nmd_data/maps 目录
         let maps_dir = nmd_data_dir.join("maps");
@@ -74,14 +68,8 @@ impl DirManager {
         Ok(Self {
             addons_dir: None,
             downloads_dir,
-            bin_dir,
             maps_dir,
         })
-    }
-
-    /// 获取二进制文件目录路径
-    pub fn bin_dir(&self) -> PathBuf {
-        self.bin_dir.to_path_buf()
     }
 
     /// 获取下载目录路径
@@ -120,23 +108,6 @@ pub fn get_global_downloads_dir() -> Result<PathBuf, String> {
 
     // 返回下载目录路径的副本
     Ok(manager.as_ref().unwrap().downloads_dir().to_path_buf())
-}
-
-/// 获取全局二进制目录路径
-///
-/// 如果全局目录管理器尚未初始化，则会自动初始化
-pub fn get_global_bin_dir() -> Result<PathBuf, String> {
-    let mut manager = DIR_MANAGER
-        .lock()
-        .map_err(|e| format!("无法锁定目录管理器: {:?}", e))?;
-
-    // 如果还没有初始化目录管理器，先初始化
-    if manager.is_none() {
-        *manager = Some(DirManager::new()?);
-    }
-
-    // 返回二进制目录路径的副本
-    Ok(manager.as_ref().unwrap().bin_dir().to_path_buf())
 }
 
 /// 设置全局 L4D2 addons 目录

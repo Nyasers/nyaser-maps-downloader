@@ -1280,67 +1280,29 @@ pub fn cleanup_aria2c_resources() {
     log_info!("aria2c资源清理完成");
 }
 
-// 从嵌入式资源中释放aria2c.exe到二进制目录
-//
-// 这是一个内部辅助函数，仅在需要时被调用
-fn release_aria2c_from_resource() -> Option<PathBuf> {
-    // 嵌入aria2c.exe作为资源
-    const ARIA2C_BYTES: &[u8] = include_bytes!("../bin/aria2c.exe");
-
-    // 获取二进制目录
-    let bin_dir = match crate::dir_manager::get_global_bin_dir() {
-        Ok(dir) => dir,
-        Err(err) => {
-            eprintln!("无法获取二进制目录: {:?}", err);
-            return None;
-        }
-    };
-
-    // 释放资源到二进制目录
-    let bin_path = bin_dir.join("aria2c.exe");
-    if let Err(err) = fs::write(&bin_path, ARIA2C_BYTES) {
-        eprintln!("无法写入aria2c.exe到二进制目录: {:?}", err);
-        return None;
-    }
-
-    Some(bin_path)
-}
-
 /// 获取aria2c可执行文件的路径
 ///
 /// 该函数按以下优先级查找aria2c可执行文件:
-/// 1. 首先检查二进制目录中是否存在aria2c.exe
-/// 2. 如果不存在，尝试从嵌入式资源中释放aria2c.exe到二进制目录
-/// 3. 如果上述方法失败，尝试使用相对路径bin/aria2c.exe
-/// 4. 作为最后的回退，仅使用程序名"aria2c"（依赖PATH环境变量）
+/// 1. 首先从Assets中获取aria2c.exe路径
+/// 2. 如果Assets中不存在，尝试使用相对路径bin/aria2c.exe
+/// 3. 作为最后的回退，仅使用程序名"aria2c"（依赖PATH环境变量）
 pub fn get_aria2c_path() -> PathBuf {
-    // 尝试使用二进制目录
-    if let Ok(bin_dir) = crate::dir_manager::get_global_bin_dir() {
-        let aria2c_bin_path = bin_dir.join("aria2c.exe");
+    match crate::get_assets_path("bin/aria2c.exe") {
+        Ok(path) => path,
+        Err(_) => {
+            // 如果Assets中不存在，尝试使用相对路径
+            let mut path = env::current_dir().unwrap_or(PathBuf::from("."));
+            path.push("bin");
+            path.push("aria2c.exe");
 
-        if aria2c_bin_path.exists() {
-            return aria2c_bin_path;
+            // 如果相对路径不存在，则回退到只使用程序名（依赖PATH环境变量）
+            if !path.exists() {
+                return PathBuf::from("aria2c");
+            }
+
+            path
         }
-
-        // 如果二进制目录中不存在，则尝试释放嵌入式资源
-        if let Some(path) = release_aria2c_from_resource() {
-            return path;
-        }
-    } else {
-        eprintln!("获取二进制目录失败，使用回退方案");
     }
-
-    // 作为最后的回退，尝试使用相对路径
-    let mut path = env::current_dir().unwrap_or(PathBuf::from("."));
-    path.push("bin");
-    path.push("aria2c.exe");
-
-    // 如果相对路径不存在，则回退到只使用程序名（依赖PATH环境变量）
-    if !path.exists() {
-        return PathBuf::from("aria2c");
-    }
-
-    path
 }
 
 /// 导入已存在的.aria2文件继续下载

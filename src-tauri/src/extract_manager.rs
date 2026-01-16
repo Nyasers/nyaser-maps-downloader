@@ -1,7 +1,7 @@
 // extract_manager.rs 模块 - 负责管理文件的解压队列和解压过程
 
 // 标准库导入
-use std::{fs, io::Read, path::PathBuf};
+use std::{fs, path::PathBuf};
 
 // 第三方库导入
 use serde_json;
@@ -10,9 +10,9 @@ use tauri_plugin_dialog::MessageDialogKind;
 
 // 内部模块导入
 use crate::{
-    dialog_manager::show_dialog, dir_manager::DIR_MANAGER, download_manager::DOWNLOAD_QUEUE,
-    init::is_app_shutting_down, log_debug, log_error, log_info, log_utils::redirect_process_output,
-    log_warn, queue_manager::QueueManager,
+    dialog_manager::show_dialog, download_manager::DOWNLOAD_QUEUE, init::is_app_shutting_down,
+    log_debug, log_error, log_info, log_utils::redirect_process_output, log_warn,
+    queue_manager::QueueManager,
 };
 
 /// 解压任务结构体 - 表示一个文件解压任务
@@ -101,9 +101,10 @@ pub fn start_extract_queue_manager() {
 
                 // 执行解压操作前，检查.aria2临时文件是否存在
                 let aria2_file_path = {
-                    let mut path = std::path::PathBuf::from(&task.file_path);
-                    path.set_extension("7z.aria2");
-                    path
+                    let path = std::path::PathBuf::from(&task.file_path);
+                    let mut aria2_path = path.into_os_string();
+                    aria2_path.push(".aria2");
+                    std::path::PathBuf::from(aria2_path)
                 };
 
                 // 如果存在.aria2临时文件，则等待其消失（优化等待逻辑）
@@ -417,98 +418,18 @@ pub fn start_extract_queue_manager() {
     );
 }
 
-// 嵌入7zG.exe、7z.dll和语言文件作为资源
-const SEVENZG_EXE_BYTES: &[u8] = include_bytes!("../bin/7zG.exe");
-const SEVENZ_DLL_BYTES: &[u8] = include_bytes!("../bin/7z.dll");
-const LANG_ZH_CN_BYTES: &[u8] = include_bytes!("../bin/Lang/zh-cn.txt");
-
-// 全局标志，表示7z资源是否已释放
-lazy_static::lazy_static! {
-    static ref SEVENZ_RESOURCES_RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-}
-
-/// 检查7z资源文件是否存在
-fn check_7z_resources_exist(bin_dir: &PathBuf) -> bool {
-    let sevenzg_exe_path = bin_dir.join("7zG.exe");
-    let sevenz_dll_path = bin_dir.join("7z.dll");
-    let lang_file_path = bin_dir.join("Lang").join("zh-cn.txt");
-
-    sevenzg_exe_path.exists() && sevenz_dll_path.exists() && lang_file_path.exists()
-}
-
-/// 从嵌入式资源中释放7zG.exe、7z.dll和语言文件到二进制目录
+/// 从Assets中获取7zG.exe路径
 ///
 /// 这是一个内部辅助函数，应用启动时调用一次，也可以在需要时重新调用
 pub fn release_7z_resources() -> Result<PathBuf, String> {
-    // 获取目录管理器
-    let manager = DIR_MANAGER
-        .lock()
-        .map_err(|e| format!("无法锁定目录管理器: {:?}", e))?;
+    crate::get_assets_path("bin/7zG.exe")
+}
 
-    // 如果还没有初始化目录管理器，先初始化
-    if manager.is_none() {
-        return Err("目录管理器未初始化".to_string());
-    }
-
-    let bin_dir = manager.as_ref().unwrap().bin_dir();
-
-    // 检查资源是否已存在，如果存在则直接返回路径，避免重复释放
-    if check_7z_resources_exist(&bin_dir) {
-        log_debug!("7z资源已存在，不需要重新释放");
-        return Ok(bin_dir.join("7zG.exe"));
-    }
-
-    // 创建Lang子目录
-    let lang_dir = bin_dir.join("Lang");
-    if let Err(err) = fs::create_dir_all(&lang_dir) {
-        log_error!("无法创建Lang目录: {:?}", err);
-        return Err(format!("无法创建Lang目录: {:?}", err));
-    }
-
-    // 释放7zG.exe
-    let sevenzg_exe_path = bin_dir.join("7zG.exe");
-    if let Err(err) = fs::write(&sevenzg_exe_path, SEVENZG_EXE_BYTES) {
-        log_error!("无法写入7zG.exe到二进制目录: {:?}", err);
-        return Err(format!("无法写入7zG.exe到二进制目录: {:?}", err));
-    }
-
-    // 释放7z.dll
-    let sevenz_dll_path = bin_dir.join("7z.dll");
-    if let Err(err) = fs::write(&sevenz_dll_path, SEVENZ_DLL_BYTES) {
-        log_error!("无法写入7z.dll到二进制目录: {:?}", err);
-        return Err(format!("无法写入7z.dll到二进制目录: {:?}", err));
-    }
-
-    // 释放语言文件
-    let lang_file_path = lang_dir.join("zh-cn.txt");
-    if let Err(err) = fs::write(&lang_file_path, LANG_ZH_CN_BYTES) {
-        log_error!("无法写入zh-cn.txt到二进制目录: {:?}", err);
-        return Err(format!("无法写入zh-cn.txt到二进制目录: {:?}", err));
-    }
-
-    // 确保文件可执行
-    #[cfg(windows)]
-    unsafe {
-        use std::os::windows::ffi::OsStrExt;
-        use winapi::um::fileapi::SetFileAttributesW;
-        use winapi::um::winnt::FILE_ATTRIBUTE_NORMAL;
-
-        let path_wide: Vec<u16> = sevenzg_exe_path
-            .as_os_str()
-            .encode_wide()
-            .chain(Some(0))
-            .collect();
-        SetFileAttributesW(path_wide.as_ptr(), FILE_ATTRIBUTE_NORMAL);
-    }
-
-    // 设置资源已释放标志
-    SEVENZ_RESOURCES_RELEASED.store(true, std::sync::atomic::Ordering::Relaxed);
-
-    log_debug!(
-        "7zG.exe、7z.dll和语言文件已成功释放到二进制目录: {}",
-        bin_dir.display()
-    );
-    Ok(sevenzg_exe_path)
+/// 从Assets中获取7z.exe路径（命令行版本）
+///
+/// 用于执行7z命令行操作，如列出文件内容（l命令）
+pub fn get_7z_exe_path() -> Result<PathBuf, String> {
+    crate::get_assets_path("bin/7z.exe")
 }
 
 /// 初始化7z资源 - 在应用启动时调用
@@ -575,40 +496,40 @@ pub fn extract_with_7zip(
     log_debug!("文件存在且大小正常，等待100毫秒确保文件系统完成操作");
     std::thread::sleep(std::time::Duration::from_millis(100));
 
-    // 预检查7z文件格式
-    match std::fs::File::open(&file) {
-        Ok(mut file_handle) => {
-            let mut header = [0u8; 100];
-            match file_handle.read(&mut header) {
-                Ok(bytes_read) => {
-                    if bytes_read >= 6 {
-                        if header[0] == 0x37 && header[1] == 0x7A {
-                            log_debug!("文件通过7z魔数检查，确认是有效的7z文件格式");
-                        } else {
-                            log_warn!(
-                                "7z文件魔数不匹配: {:02X} {:02X} {:02X} {:02X} {:02X} {:02X}",
-                                header[0],
-                                header[1],
-                                header[2],
-                                header[3],
-                                header[4],
-                                header[5]
-                            );
-                            log_warn!("文件魔数不匹配，但继续尝试解压以提高兼容性");
-                        }
-                    } else {
-                        log_warn!("读取的文件头部数据不足，无法完整检查魔数，但继续尝试解压");
-                    }
-                }
-                Err(e) => {
-                    log_warn!("无法读取文件内容进行预检查: {}, 继续尝试解压", e);
-                }
-            }
-        }
-        Err(e) => {
-            log_warn!("无法打开文件进行预检查: {}, 继续尝试解压", e);
-        }
+    // 使用7z.exe命令行版本验证文件是否是有效的压缩文件
+    log_debug!("使用7z l命令验证压缩文件格式: {}", file_path);
+    let sevenz_exe_path = get_7z_exe_path()?;
+    let sevenz_exe_str = sevenz_exe_path
+        .to_str()
+        .ok_or("无法将7z.exe路径转换为字符串".to_string())?;
+
+    let list_args = [
+        "l",         // 列出命令
+        "-sccUTF-8", // 设置控制台代码页为UTF-8
+        file_path,   // 要检查的文件
+    ];
+
+    log_debug!("执行验证命令: {} {}", sevenz_exe_str, list_args.join(" "));
+
+    let mut list_command = std::process::Command::new(sevenz_exe_str);
+    list_command.args(&list_args);
+    list_command.stdout(std::process::Stdio::piped());
+    list_command.stderr(std::process::Stdio::piped());
+
+    let list_output = list_command
+        .output()
+        .map_err(|e| format!("无法执行7z l命令: {}", e))?;
+
+    if !list_output.status.success() {
+        let stderr = String::from_utf8_lossy(&list_output.stderr);
+        log_error!("7z l命令失败，文件可能不是有效的压缩文件: {}", stderr);
+        return Err(format!(
+            "文件验证失败: 不是有效的压缩文件或文件已损坏\n\n详细信息:\n{}",
+            stderr
+        ));
     }
+
+    log_debug!("文件验证成功，是有效的压缩文件");
 
     // extract_dir 已经是 maps 目录（例如 E:\NMD_Data\maps），直接使用
     let maps_dir = PathBuf::from(extract_dir);
@@ -643,10 +564,10 @@ pub fn extract_with_7zip(
         return Err(format!("创建目标解压目录失败: {}", e));
     }
 
-    // 从嵌入式资源获取7zG.exe
-    log_debug!("尝试获取7zG.exe、7z.dll和语言文件...");
-    let sevenz_exe_path = release_7z_resources()?;
-    let sevenz_exe_str = sevenz_exe_path
+    // 从嵌入式资源获取7zG.exe（GUI版本）用于解压
+    log_debug!("获取7zG.exe用于解压操作...");
+    let sevenzg_exe_path = release_7z_resources()?;
+    let sevenzg_exe_str = sevenzg_exe_path
         .to_str()
         .ok_or("无法将7zG.exe路径转换为字符串".to_string())?;
 
@@ -655,20 +576,18 @@ pub fn extract_with_7zip(
         使用x命令解压
         -y表示自动确认所有提示
         -sccUTF-8设置控制台代码页
-        -t7z指定文件类型为7z
     */
     let args = [
         "x",         // 解压命令
         "-y",        // 自动确认
         "-sccUTF-8", // 设置控制台代码页为UTF-8
-        "-t7z",      // 指定文件类型为7z
         file_path,   // 要解压的文件
     ];
 
-    log_debug!("执行解压命令: {} {}", sevenz_exe_str, args.join(" "));
+    log_debug!("执行解压命令: {} {}", sevenzg_exe_str, args.join(" "));
 
     // 执行7zG.exe命令
-    let mut command = std::process::Command::new(sevenz_exe_str);
+    let mut command = std::process::Command::new(sevenzg_exe_str);
     command.args(&args);
 
     // 设置工作目录为目标目录，这样7z会直接解压到这里
@@ -729,12 +648,12 @@ pub fn extract_with_7zip(
                 file_count
             ))
         } else {
-            log_error!("解压失败: 解压目录为空，可能文件格式不支持");
+            log_error!("解压失败: 解压目录为空，可能文件格式不支持或文件已损坏");
             // 清理空目录
             if let Err(e) = std::fs::remove_dir_all(&target_dir) {
                 log_warn!("无法删除空的解压目录: {}", e);
             }
-            Err("解压失败: 解压目录为空，可能文件格式不支持".to_string())
+            Err("解压失败: 解压目录为空，可能文件格式不支持或文件已损坏".to_string())
         }
     } else {
         // 解析错误输出

@@ -1,6 +1,8 @@
 // 引入 Tauri 相关模块
 use crate::init::GLOBAL_APP_HANDLE;
 use std::io::{Error, ErrorKind};
+use std::path::PathBuf;
+use std::thread;
 use tauri::{
     async_runtime,
     http::{Request, Response},
@@ -9,7 +11,6 @@ use tauri::{
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_updater::UpdaterExt;
-use tokio::time::{sleep, Duration};
 
 // 导入子模块
 mod aria2c;
@@ -25,6 +26,57 @@ mod queue_manager;
 mod symlink_manager;
 mod utils;
 
+/// 从Assets中获取资源路径
+///
+/// # 参数
+/// - `asset_path`: Assets中的相对路径，例如 "bin/aria2c.exe" 或 "assets/serverlist/main.js"
+///
+/// # 返回值
+/// - 成功时返回 `Ok(PathBuf)` 表示文件路径
+/// - 失败时返回 `Err(String)` 表示错误信息
+pub fn get_assets_path(asset_path: &str) -> Result<PathBuf, String> {
+    loop {
+        let result = match GLOBAL_APP_HANDLE.read() {
+            Ok(guard) => {
+                if let Some(ref app_handle) = *guard {
+                    match app_handle
+                        .path()
+                        .resolve(asset_path.to_string(), BaseDirectory::Resource)
+                    {
+                        Ok(resource_path) => {
+                            let resource_path = resource_path
+                                .to_str()
+                                .unwrap()
+                                .split_once("\\\\?\\")
+                                .unwrap()
+                                .1;
+                            log_debug!("获取资源路径: {:?} -> {:?}", asset_path, resource_path);
+                            Some(Ok(PathBuf::from(resource_path)))
+                        }
+                        Err(e) => {
+                            log_error!("解析二进制文件路径失败: {:?}", e);
+                            Some(Err(e.to_string()))
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+            Err(e) => {
+                log_error!("无法获取全局应用句柄锁: {:?}", e);
+                Some(Err(e.to_string()))
+            }
+        };
+
+        if let Some(result) = result {
+            return result;
+        } else {
+            log_info!("应用句柄未初始化，等待初始化完成...");
+            thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+}
+
 // 自定义协议处理函数，用于处理asset://请求
 fn asset_protocol_handler<T: Runtime>(
     _context: UriSchemeContext<'_, T>,
@@ -35,44 +87,14 @@ fn asset_protocol_handler<T: Runtime>(
     log_info!("asset协议请求: {}", path);
 
     async_runtime::spawn(async move {
-        let file_content = loop {
-            let result = match GLOBAL_APP_HANDLE.read() {
-                Ok(guard) => {
-                    if let Some(ref app_handle) = *guard {
-                        match app_handle
-                            .path()
-                            .resolve("assets/".to_string() + &path, BaseDirectory::Resource)
-                        {
-                            Ok(resource_path) => {
-                                let resource_path = resource_path
-                                    .to_str()
-                                    .unwrap()
-                                    .split_once("\\\\?\\")
-                                    .unwrap()
-                                    .1;
-                                log_info!("资源路径: {:?}", resource_path);
-                                Some(std::fs::read(resource_path))
-                            }
-                            Err(e) => {
-                                log_error!("解析资源路径失败: {:?}", e);
-                                Some(Err(Error::new(ErrorKind::NotFound, e.to_string())))
-                            }
-                        }
-                    } else {
-                        None
-                    }
-                }
-                Err(e) => {
-                    log_error!("无法获取全局应用句柄锁: {:?}", e);
-                    Some(Err(Error::new(ErrorKind::NotFound, e.to_string())))
-                }
-            };
-
-            if let Some(result) = result {
-                break result;
-            } else {
-                log_info!("应用句柄未初始化，等待初始化完成...");
-                sleep(Duration::from_millis(100)).await;
+        let file_content = match crate::get_assets_path(&format!("assets/{}", path)) {
+            Ok(resource_path) => {
+                log_info!("资源路径: {:?}", resource_path);
+                std::fs::read(&resource_path)
+            }
+            Err(e) => {
+                log_error!("获取资源路径失败: {:?}", e);
+                Err(Error::new(ErrorKind::NotFound, e))
             }
         };
 
