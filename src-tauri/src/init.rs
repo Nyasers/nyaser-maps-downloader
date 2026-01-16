@@ -19,6 +19,33 @@ lazy_static! {
     // 全局应用句柄，用于在清理资源时关闭窗口
     pub static ref GLOBAL_APP_HANDLE: std::sync::Arc<std::sync::RwLock<Option<tauri::AppHandle>>> =
         std::sync::Arc::new(std::sync::RwLock::new(None));
+    // 标记清理函数是否已经被调用
+    static ref CLEANUP_CALLED: AtomicBool = AtomicBool::new(false);
+}
+
+// atexit清理函数，作为最后的后备机制
+extern "C" fn atexit_cleanup() {
+    if !CLEANUP_CALLED.swap(true, Ordering::SeqCst) {
+        log_info!("atexit钩子触发，执行资源清理...");
+        cleanup_app_resources_impl();
+    }
+}
+
+// Windows特定：提高进程关闭优先级
+#[cfg(target_os = "windows")]
+fn set_process_shutdown_priority() {
+    use winapi::um::processthreadsapi::SetProcessShutdownParameters;
+
+    unsafe {
+        // 设置更高的关闭优先级 (0x3FF 是最高优先级)
+        // 这将使我们的进程在系统关闭时获得更多时间来清理资源
+        let result = SetProcessShutdownParameters(0x3FF, 0);
+        if result != 0 {
+            log_info!("进程关闭优先级设置成功");
+        } else {
+            log_warn!("进程关闭优先级设置失败");
+        }
+    }
 }
 
 // 获取应用关闭状态
@@ -109,6 +136,19 @@ pub fn update_window_title(app_handle: &AppHandle, title: &str) {
 /// - 成功时返回Ok(())
 /// - 失败时返回包含错误信息的Err
 pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
+    // 注册atexit钩子作为最后的后备机制
+    unsafe {
+        if libc::atexit(atexit_cleanup) == 0 {
+            log_info!("atexit钩子注册成功");
+        } else {
+            log_warn!("atexit钩子注册失败");
+        }
+    }
+
+    // Windows特定：提高进程关闭优先级
+    #[cfg(target_os = "windows")]
+    set_process_shutdown_priority();
+
     // 获取应用句柄的克隆，以便在异步任务中使用
     let app_handle = app.handle().clone();
 
@@ -248,6 +288,13 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
 /// 1. 临时目录被正确清理，避免磁盘空间浪费
 /// 2. 所有窗口被正确关闭
 pub fn cleanup_app_resources() {
+    if !CLEANUP_CALLED.swap(true, Ordering::SeqCst) {
+        cleanup_app_resources_impl();
+    }
+}
+
+/// 实际的资源清理实现
+fn cleanup_app_resources_impl() {
     // 检查是否已经在关闭过程中，如果是则直接返回，避免循环调用
     if is_app_shutting_down() {
         log_info!("应用已经在关闭过程中，跳过重复的资源清理...");

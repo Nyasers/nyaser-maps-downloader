@@ -2231,6 +2231,7 @@ version = "2.2.1"
 dependencies = [
  "chrono",
  "lazy_static",
+ "libc",
  "regex",
  "serde",
  "serde_json",
@@ -2245,6 +2246,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "winapi",
+ "windows-sys 0.59.0",
  "winreg 0.51.0",
 ]
 

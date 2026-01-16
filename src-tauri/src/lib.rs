@@ -2,7 +2,7 @@
 use crate::init::GLOBAL_APP_HANDLE;
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
-use std::thread;
+use std::{future, thread};
 use tauri::{
     async_runtime,
     http::{Request, Response},
@@ -132,10 +132,84 @@ fn asset_protocol_handler<T: Runtime>(
     });
 }
 
+// Windows API绑定和更可靠的信号处理
+#[cfg(target_os = "windows")]
+mod windows_signal {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+    use std::time::Duration;
+
+    static CLEANUP_CALLED: AtomicBool = AtomicBool::new(false);
+
+    extern "system" fn console_handler(ctrl_type: u32) -> i32 {
+        match ctrl_type {
+            0 => {
+                crate::log_info!("收到 CTRL_C_EVENT");
+            }
+            1 => {
+                crate::log_info!("收到 CTRL_BREAK_EVENT");
+            }
+            2 => {
+                crate::log_info!("收到 CTRL_CLOSE_EVENT");
+            }
+            5 => {
+                crate::log_info!("收到 CTRL_LOGOFF_EVENT");
+            }
+            6 => {
+                crate::log_info!("收到 CTRL_SHUTDOWN_EVENT");
+            }
+            _ => {
+                crate::log_info!("收到未知控制事件: {}", ctrl_type);
+            }
+        }
+
+        if !CLEANUP_CALLED.swap(true, Ordering::SeqCst) {
+            crate::log_info!("开始执行清理...");
+            super::init::cleanup_app_resources();
+            thread::sleep(Duration::from_millis(500));
+        }
+        1
+    }
+
+    pub fn setup_signal_handlers() {
+        unsafe {
+            let result = windows_sys::Win32::System::Console::SetConsoleCtrlHandler(
+                Some(console_handler),
+                1,
+            );
+
+            if result != 0 {
+                crate::log_info!("Windows控制台信号处理器设置成功");
+            } else {
+                crate::log_warn!("Windows控制台信号处理器设置失败");
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+use windows_signal::setup_signal_handlers;
+
+// 信号处理函数
+fn handle_signals() {
+    if cfg!(target_os = "windows") {
+        setup_signal_handlers();
+
+        use tokio::signal::windows;
+        let _ = handle_signal(windows::ctrl_break().unwrap().recv());
+        let _ = handle_signal(windows::ctrl_c().unwrap().recv());
+        let _ = handle_signal(windows::ctrl_close().unwrap().recv());
+        let _ = handle_signal(windows::ctrl_logoff().unwrap().recv());
+        let _ = handle_signal(windows::ctrl_shutdown().unwrap().recv());
+    } else {
+        let _ = handle_signal(tokio::signal::ctrl_c());
+    }
+}
+
 // 异步信号处理函数
-async fn handle_signals() {
-    // 等待Ctrl+C信号
-    tokio::signal::ctrl_c().await.expect("无法等待Ctrl+C信号");
+async fn handle_signal(signal: impl future::Future) {
+    // 等待信号
+    signal.await;
     // 收到信号后清理资源
     init::cleanup_app_resources();
 }
@@ -176,13 +250,8 @@ fn handle_deep_link(app: AppHandle, args: Vec<String>) {
 // 主入口函数
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 创建一个异步运行时来处理信号
-    let rt = tokio::runtime::Runtime::new().expect("无法创建Tokio运行时");
-
-    // 在后台线程中启动信号处理
-    std::thread::spawn(move || {
-        rt.block_on(handle_signals());
-    });
+    // 启动信号处理
+    handle_signals();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
