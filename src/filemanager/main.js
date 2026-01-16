@@ -1,5 +1,8 @@
-const { core, dialog } = window.__TAURI__;
-const { invoke, listen } = core;
+const {
+  core: { invoke },
+  dialog,
+  event: { listen },
+} = window.__TAURI__;
 
 // 加载文件列表
 async function loadFileList() {
@@ -752,16 +755,14 @@ async function changeDataDir() {
     .getElementById("batchDeleteBtn")
     .addEventListener("click", batchDeleteFiles);
 
-  // 监听窗口show事件，当窗口从隐藏状态重新显示时自动刷新文件列表
-  if (window.__TAURI__ && window.__TAURI__.event) {
-    // 监听来自main窗口的refresh-file-list自定义事件
-    window.__TAURI__.event.listen("refresh-file-list", () => {
-      console.log(
-        "Nyaser Maps Downloader: 收到刷新文件列表事件，开始刷新文件列表"
-      );
-      loadFileList();
-    });
-  }
+  // 监听来自main窗口的refresh-file-list自定义事件
+  listen("refresh-file-list", () => {
+    console.log(
+      "Nyaser Maps Downloader: 收到刷新文件列表事件，开始刷新文件列表"
+    );
+    loadFileList();
+  });
+
   // 初始加载文件列表
   loadFileList();
 })();
