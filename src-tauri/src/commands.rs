@@ -19,6 +19,56 @@ use crate::{
     utils::get_file_name,
 };
 
+// 显示窗口
+fn show_window(window: &tauri::WebviewWindow, window_name: &str) -> Result<(), String> {
+    if let Err(e) = window.show() {
+        log_error!("显示{}窗口失败: {:?}", window_name, e);
+        return Err(format!("显示窗口失败: {:?}", e));
+    }
+    Ok(())
+}
+
+// 聚焦窗口
+fn focus_window(window: &tauri::WebviewWindow, window_name: &str) {
+    if let Err(e) = window.set_focus() {
+        log_error!("设置{}窗口焦点失败: {:?}", window_name, e);
+    }
+}
+
+// 重置窗口状态
+fn reset_window_state(window: &tauri::WebviewWindow, window_name: &str) {
+    if let Err(e) = window.unmaximize() {
+        log_error!("重置{}窗口最大化状态失败: {:?}", window_name, e);
+    }
+    if let Err(e) = window.unminimize() {
+        log_error!("恢复{}窗口最小化状态失败: {:?}", window_name, e);
+    }
+}
+
+// 相对主窗口居中
+fn center_window_relative_to_main(
+    window: &tauri::WebviewWindow,
+    app_handle: &AppHandle,
+    window_name: &str,
+) {
+    if let Some(main_window) = app_handle.get_webview_window("main") {
+        if let (Ok(main_pos), Ok(main_size), Ok(child_size)) = (
+            main_window.inner_position(),
+            main_window.inner_size(),
+            window.inner_size(),
+        ) {
+            let x = main_pos.x + ((main_size.width as i32 - child_size.width as i32) / 2);
+            let y = main_pos.y + ((main_size.height as i32 - child_size.height as i32) / 2);
+
+            if let Err(e) =
+                window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+            {
+                log_error!("设置{}窗口居中位置失败: {:?}", window_name, e);
+            }
+        }
+    }
+}
+
 /// 打开文件管理器窗口
 ///
 /// # 参数
@@ -33,51 +83,11 @@ pub fn open_file_manager_window(app_handle: AppHandle) -> Result<String, String>
 
     match app_handle.get_webview_window("file_manager") {
         Some(window) => {
-            // 显示窗口
-            if let Err(e) = window.show() {
-                log_error!("显示文件管理器窗口失败: {:?}", e);
-                return Err(format!("显示窗口失败: {:?}", e));
-            }
+            show_window(&window, "文件管理器")?;
+            focus_window(&window, "文件管理器");
+            reset_window_state(&window, "文件管理器");
+            center_window_relative_to_main(&window, &app_handle, "文件管理器");
 
-            // 将窗口置于前台
-            if let Err(e) = window.set_focus() {
-                log_error!("设置文件管理器窗口焦点失败: {:?}", e);
-                // 这个错误不影响窗口打开，所以不返回Err
-            }
-
-            // 重置窗口状态到Normal（非最大/最小化）
-            if let Err(e) = window.unmaximize() {
-                log_error!("重置文件管理器窗口最大化状态失败: {:?}", e);
-                // 这个错误不影响窗口打开，所以不返回Err
-            }
-
-            // 从最小化状态恢复
-            if let Err(e) = window.unminimize() {
-                log_error!("恢复文件管理器窗口最小化状态失败: {:?}", e);
-                // 这个错误不影响窗口打开，所以不返回Err
-            }
-
-            // 相对于主窗口居中对齐
-            if let Some(main_window) = app_handle.get_webview_window("main") {
-                if let (Ok(main_pos), Ok(main_size), Ok(child_size)) = (
-                    main_window.inner_position(),
-                    main_window.inner_size(),
-                    window.inner_size(),
-                ) {
-                    // 计算居中位置
-                    let x = main_pos.x + ((main_size.width as i32 - child_size.width as i32) / 2);
-                    let y = main_pos.y + ((main_size.height as i32 - child_size.height as i32) / 2);
-
-                    // 设置居中位置
-                    if let Err(e) = window
-                        .set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
-                    {
-                        log_error!("设置文件管理器窗口居中位置失败: {:?}", e);
-                    }
-                }
-            }
-
-            // 发送自定义事件到file_manager窗口，触发文件列表刷新
             if let Some(window) = app_handle.get_webview_window("file_manager") {
                 let _ = window.reload();
             }
@@ -295,51 +305,11 @@ pub fn open_server_list_window(app_handle: AppHandle) -> Result<String, String> 
 
     match app_handle.get_webview_window("server_list") {
         Some(window) => {
-            // 显示窗口
-            if let Err(e) = window.show() {
-                log_error!("显示服务器列表窗口失败: {:?}", e);
-                return Err(format!("显示窗口失败: {:?}", e));
-            }
+            show_window(&window, "服务器列表")?;
+            focus_window(&window, "服务器列表");
+            reset_window_state(&window, "服务器列表");
+            center_window_relative_to_main(&window, &app_handle, "服务器列表");
 
-            // 将窗口置于前台
-            if let Err(e) = window.set_focus() {
-                log_error!("设置服务器列表窗口焦点失败: {:?}", e);
-                // 这个错误不影响窗口打开，所以不返回Err
-            }
-
-            // 重置窗口状态到Normal（非最大/最小化）
-            if let Err(e) = window.unmaximize() {
-                log_error!("重置服务器列表窗口最大化状态失败: {:?}", e);
-                // 这个错误不影响窗口打开，所以不返回Err
-            }
-
-            // 从最小化状态恢复
-            if let Err(e) = window.unminimize() {
-                log_error!("恢复服务器列表窗口最小化状态失败: {:?}", e);
-                // 这个错误不影响窗口打开，所以不返回Err
-            }
-
-            // 相对于主窗口居中对齐
-            if let Some(main_window) = app_handle.get_webview_window("main") {
-                if let (Ok(main_pos), Ok(main_size), Ok(child_size)) = (
-                    main_window.inner_position(),
-                    main_window.inner_size(),
-                    window.inner_size(),
-                ) {
-                    // 计算居中位置
-                    let x = main_pos.x + ((main_size.width as i32 - child_size.width as i32) / 2);
-                    let y = main_pos.y + ((main_size.height as i32 - child_size.height as i32) / 2);
-
-                    // 设置居中位置
-                    if let Err(e) = window
-                        .set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
-                    {
-                        log_error!("设置服务器列表窗口居中位置失败: {:?}", e);
-                    }
-                }
-            }
-
-            // 从Assets中读取JavaScript代码并执行
             std::thread::spawn(move || {
                 let js_code = match crate::get_assets_path("assets/serverlist/main.js") {
                     Ok(resource_path) => {
