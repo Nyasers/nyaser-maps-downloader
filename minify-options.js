@@ -19,11 +19,11 @@ const minifyOptions = {
     level: 2, // 确保使用最高压缩级别
     format: {
       comments: false,
-      spaces: false
+      spaces: false,
     },
     // 移除所有注释以提高压缩率
     discardComments: { removeAll: true },
-    roundingPrecision: -1 // 移除所有浮点数的精度限制
+    roundingPrecision: -1, // 移除所有浮点数的精度限制
   },
 
   // JavaScript 压缩优化 - 经过实战验证的最佳配置
@@ -43,7 +43,7 @@ const minifyOptions = {
       toplevel: true, // 压缩顶级作用域中的变量名
       keep_fargs: false, // 不保留函数参数名
       pure_getters: true, // 启用 getter 的纯函数检查
-      pure_funcs: ['console.log', 'console.warn', 'console.error', 'debugger'],
+      pure_funcs: ["console.log", "console.warn", "console.error", "debugger"],
       if_return: true, // 优化 if 语句和 return 语句
       side_effects: true, // 移除没有副作用的语句
       // 以下为额外且激进的压缩选项，可进一步减少文件大小
@@ -54,7 +54,7 @@ const minifyOptions = {
       unsafe: true, // 启用不安全的转换
       unsafe_arrows: true,
       unsafe_methods: true,
-      unsafe_proto: true
+      unsafe_proto: true,
     },
     mangle: {
       toplevel: true, // 对顶级作用域的变量名进行混淆
@@ -62,14 +62,14 @@ const minifyOptions = {
       keep_fnames: false, // 混淆函数名
       safari10: true,
       eval: true,
-      module: true
+      module: true,
     },
     output: {
       comments: false, // 移除所有注释
       beautify: false, // 不美化代码
       indent_level: 0,
-      quote_style: 1
-    }
+      quote_style: 1,
+    },
   },
 
   // Tauri 应用特有的优化
@@ -84,7 +84,7 @@ const minifyOptions = {
   // 确保与 Tauri API 的兼容性
   ignoreCustomComments: [/TAURI_API/],
   ignoreCustomFragments: [/\<\?#.*?\?\>/],
-  keepClosingSlash: true
+  keepClosingSlash: true,
 };
 
 export default minifyOptions;

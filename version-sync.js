@@ -29,9 +29,7 @@ function updateTauriConf(version) {
       JSON.stringify(tauriConf, null, 2) + "\n",
       "utf-8"
     );
-    console.log(
-      `已更新${tauriConfPath}中的版本号为${version}`
-    );
+    console.log(`已更新${tauriConfPath}中的版本号为${version}`);
   } catch (error) {
     console.error("更新tauri.conf.json失败:", error);
     process.exit(1);
