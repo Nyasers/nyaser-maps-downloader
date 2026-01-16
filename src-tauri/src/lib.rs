@@ -3,6 +3,8 @@ use tauri::{AppHandle, Emitter, Manager, Url};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_updater::UpdaterExt;
 
+use crate::init::GLOBAL_APP_HANDLE;
+
 // 导入子模块
 mod aria2c;
 mod commands;
@@ -23,21 +25,54 @@ fn asset_protocol_handler<T: tauri::Runtime>(
     request: tauri::http::Request<Vec<u8>>,
     responder: tauri::UriSchemeResponder,
 ) {
-    // 获取请求的路径，去除协议前缀
     let path = request.uri().path().trim_start_matches('/').to_string();
     log_info!("asset协议请求: {}", path);
 
-    // 构建asset目录路径
-    let asset_path =
-        std::path::Path::new(std::env::var("CARGO_MANIFEST_DIR").unwrap().as_str()).join("asset");
-    let file_path = asset_path.join(&path);
-
-    // 在后台线程中读取文件内容
     tauri::async_runtime::spawn(async move {
-        match std::fs::read(&file_path) {
+        let file_content = loop {
+            let result = match GLOBAL_APP_HANDLE.read() {
+                Ok(guard) => {
+                    if let Some(ref app_handle) = *guard {
+                        match app_handle
+                            .path()
+                            .resolve(&path, tauri::path::BaseDirectory::Resource)
+                        {
+                            Ok(resource_path) => {
+                                log_info!("资源路径: {:?}", resource_path);
+                                Some(std::fs::read(&resource_path))
+                            }
+                            Err(e) => {
+                                log_error!("解析资源路径失败: {:?}", e);
+                                Some(Err(std::io::Error::new(
+                                    std::io::ErrorKind::NotFound,
+                                    e.to_string(),
+                                )))
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                }
+                Err(e) => {
+                    log_error!("无法获取全局应用句柄锁: {:?}", e);
+                    Some(Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        e.to_string(),
+                    )))
+                }
+            };
+
+            if let Some(result) = result {
+                break result;
+            } else {
+                log_info!("应用句柄未初始化，等待初始化完成...");
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+        };
+
+        match file_content {
             Ok(content) => {
-                // 根据文件扩展名设置Content-Type
-                let content_type = match file_path.extension().and_then(|e| e.to_str()) {
+                let content_type = match path.split('.').last() {
                     Some("html") => "text/html",
                     Some("js") => "application/javascript",
                     Some("css") => "text/css",
