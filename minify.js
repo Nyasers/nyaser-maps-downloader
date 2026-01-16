@@ -10,7 +10,7 @@ import {
   existsSync,
   mkdirSync,
   statSync,
-  rmdirSync,
+  rmSync,
 } from "fs";
 
 // 导入压缩配置选项
@@ -25,7 +25,7 @@ const __dirname = path.dirname(__filename);
 const srcDir = path.join(__dirname, "src");
 const assetsPath = path.join(__dirname, "src-tauri", "assets");
 if (existsSync(assetsPath)) {
-  rmdirSync(assetsPath, { recursive: true });
+  rmSync(assetsPath, { recursive: true });
 }
 
 // 获取当前环境模式（development或production）
