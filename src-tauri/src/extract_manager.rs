@@ -37,6 +37,331 @@ lazy_static::lazy_static! {
     pub static ref EXTRACT_MANAGER: QueueManager<ExtractTask> = QueueManager::new(1);
 }
 
+// 从路径获取文件名
+fn get_filename_from_path(file_path: &str) -> String {
+    std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|os_str| os_str.to_str())
+        .unwrap_or("未知文件")
+        .to_string()
+}
+
+// 构建aria2文件路径
+fn build_aria2_file_path(file_path: &str) -> PathBuf {
+    let path = PathBuf::from(file_path);
+    let mut aria2_path = path.into_os_string();
+    aria2_path.push(".aria2");
+    PathBuf::from(aria2_path)
+}
+
+// 等待aria2文件消失
+fn wait_for_aria2_file(
+    aria2_file_path: &PathBuf,
+    extract_task_id: String,
+    download_task_id: String,
+    task: &ExtractTask,
+) {
+    if !aria2_file_path.exists() {
+        log_debug!(
+            "解压任务 [{}]: 没有找到.aria2临时文件，可以直接解压",
+            extract_task_id
+        );
+        return;
+    }
+
+    log_debug!(
+        "解压任务 [{}]: 开始等待.aria2临时文件消失: {}",
+        extract_task_id,
+        aria2_file_path.display()
+    );
+
+    let max_wait_seconds = 180;
+    let mut wait_count = 0;
+    let start_time = std::time::Instant::now();
+
+    let aria2_file_path_str = aria2_file_path.to_string_lossy().to_string();
+    let app_handle_clone = task.app_handle.clone();
+    let extract_task_id_clone = extract_task_id.clone();
+    let download_task_id_clone = download_task_id.clone();
+
+    while aria2_file_path.exists() {
+        wait_count += 1;
+
+        let elapsed = start_time.elapsed().as_secs();
+        if elapsed > max_wait_seconds {
+            log_warn!(
+                "解压任务 [{}]: 等待.aria2文件超时 ({}/{})秒",
+                extract_task_id,
+                elapsed,
+                max_wait_seconds
+            );
+
+            log_info!(
+                "解压任务 [{}]: 尝试继续下载任务 [{}]",
+                extract_task_id,
+                download_task_id_clone
+            );
+
+            if let Ok(Some(download_task)) = find_download_task_by_id(&download_task_id_clone) {
+                log_info!("找到下载任务 [{}]，开始继续下载", download_task_id_clone);
+
+                let task_file_path_clone = task.file_path.clone();
+                std::thread::spawn(move || {
+                    let result = {
+                        if let Ok(mut manager_guard) = crate::aria2c::ARIA2_RPC_MANAGER.lock() {
+                            if let Some(manager) = &mut *manager_guard {
+                                let path_buf = PathBuf::from(&aria2_file_path_str);
+                                let filename = path_buf
+                                    .file_stem()
+                                    .and_then(|os_str| os_str.to_str())
+                                    .unwrap_or("未知文件");
+
+                                manager.add_download_sync(
+                                    &download_task.url,
+                                    &std::path::Path::new(&aria2_file_path_str)
+                                        .parent()
+                                        .map(|p| p.to_string_lossy().to_string())
+                                        .unwrap_or("\\".to_string()),
+                                    filename,
+                                )
+                            } else {
+                                Err("ARIA2 RPC管理器未初始化".to_string())
+                            }
+                        } else {
+                            Err("无法获取ARIA2 RPC管理器锁".to_string())
+                        }
+                    };
+
+                    match result {
+                        Ok(gid) => {
+                            log_info!(
+                                "解压任务 [{}]: 成功继续下载任务 [{}]，新的GID: {}",
+                                extract_task_id_clone,
+                                download_task_id_clone,
+                                gid
+                            );
+                            let _ = app_handle_clone.emit_to(
+                                "main",
+                                "download-resumed",
+                                &serde_json::json!(
+                                    {
+                                        "taskId": download_task_id_clone,
+                                        "filename": PathBuf::from(&task_file_path_clone)
+                                            .file_name()
+                                            .and_then(|os_str| os_str.to_str())
+                                            .unwrap_or("未知文件"),
+                                        "message": "成功继续下载任务"
+                                    }
+                                ),
+                            );
+                        }
+                        Err(e) => {
+                            log_error!(
+                                "解压任务 [{}]: 继续下载任务 [{}] 失败: {}",
+                                extract_task_id_clone,
+                                download_task_id_clone,
+                                e
+                            );
+                        }
+                    }
+                });
+            } else {
+                log_warn!(
+                    "解压任务 [{}]: 未找到对应的下载任务 [{}]",
+                    extract_task_id,
+                    download_task_id_clone
+                );
+            }
+
+            log_warn!("解压任务 [{}]: 继续解压流程", extract_task_id);
+            break;
+        }
+
+        if wait_count % 20 == 0 {
+            log_debug!(
+                "解压任务 [{}]: 已等待 {} 秒，.aria2文件仍存在: {}",
+                extract_task_id,
+                wait_count / 2,
+                aria2_file_path.display()
+            );
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
+// 发送解压开始事件
+fn send_extract_start_event(task: &ExtractTask, filename: &str) {
+    let _ = task.app_handle.emit_to(
+        "main",
+        "extract-start",
+        &serde_json::json!(
+            {
+                "taskId": task.download_task_id,
+                "filename": filename,
+                "extractDir": task.extract_dir
+            }
+        ),
+    );
+}
+
+// 发送解压完成事件
+fn send_extract_complete_event(task: &ExtractTask, success: bool, message: &str) {
+    let _ = task.app_handle.emit_to(
+        "main",
+        "extract-complete",
+        &serde_json::json!(
+            {
+                "taskId": task.download_task_id,
+                "success": success,
+                "message": message,
+                "filename": "未知文件".to_string()
+            }
+        ),
+    );
+}
+
+// 清理临时文件
+fn cleanup_temp_file(task: &ExtractTask, extract_task_id: &str, success: bool) {
+    if success {
+        if let Err(e) = fs::remove_file(&task.file_path) {
+            log_warn!(
+                "解压任务 [{}]: 无法删除临时文件 {}: {}",
+                extract_task_id,
+                task.file_path,
+                e
+            );
+        } else {
+            log_debug!(
+                "解压任务 [{}]: 成功删除临时文件: {}",
+                extract_task_id,
+                task.file_path
+            );
+        }
+    } else {
+        log_warn!(
+            "解压任务 [{}]: 解压失败，保留临时文件以便排查: {}",
+            extract_task_id,
+            task.file_path
+        );
+    }
+}
+
+// 重试解压
+fn retry_extract(
+    task: &ExtractTask,
+    extract_task_id: &str,
+    initial_result: Result<String, String>,
+) -> Result<String, String> {
+    const MAX_RETRY_COUNT: u32 = 3;
+    let mut retry_count = 0;
+    let mut final_result = initial_result;
+
+    while final_result.is_err() && retry_count < MAX_RETRY_COUNT {
+        retry_count += 1;
+        log_warn!(
+            "解压任务 [{}] 失败，开始第 {} 次重试: {}",
+            extract_task_id,
+            retry_count,
+            final_result.unwrap_err()
+        );
+
+        std::thread::sleep(std::time::Duration::from_secs(2 * retry_count as u64));
+
+        log_debug!(
+            "解压任务 [{}] 第 {} 次重试中...",
+            extract_task_id,
+            retry_count
+        );
+        final_result = extract_with_7zip(
+            &task.file_path,
+            &task.extract_dir,
+            &task.archive_name,
+            &task.download_task_id,
+        );
+    }
+
+    final_result
+}
+
+// 构建返回消息
+fn build_result_message(
+    result: &Result<String, String>,
+    retry_count: u32,
+    max_retry_count: u32,
+) -> String {
+    match result {
+        Ok(msg) => {
+            if retry_count > 0 {
+                format!("{} (重试了{}次)", msg, retry_count)
+            } else {
+                msg.clone()
+            }
+        }
+        Err(e) => {
+            if retry_count >= max_retry_count {
+                format!("解压失败（已尝试{}次）: {}", max_retry_count, e)
+            } else {
+                e.to_string()
+            }
+        }
+    }
+}
+
+// 处理解压任务
+fn process_extract_task(task: ExtractTask, extract_task_id: &str, download_task_id: &str) {
+    let filename = get_filename_from_path(&task.file_path);
+    let aria2_file_path = build_aria2_file_path(&task.file_path);
+
+    wait_for_aria2_file(
+        &aria2_file_path,
+        extract_task_id.to_string(),
+        download_task_id.to_string(),
+        &task,
+    );
+
+    send_extract_start_event(&task, &filename);
+
+    log_info!(
+        "解压任务 [{}]: .aria2临时文件已消失，开始解压文件: {}",
+        extract_task_id,
+        task.file_path
+    );
+
+    let result = extract_with_7zip(
+        &task.file_path,
+        &task.extract_dir,
+        &task.archive_name,
+        &task.download_task_id,
+    );
+
+    let final_result = retry_extract(&task, extract_task_id, result);
+
+    let success = final_result.is_ok();
+    cleanup_temp_file(&task, extract_task_id, success);
+
+    const MAX_RETRY_COUNT: u32 = 3;
+    let retry_count = if success { 0 } else { MAX_RETRY_COUNT };
+    let message = build_result_message(&final_result, retry_count, MAX_RETRY_COUNT);
+
+    if !success && retry_count >= MAX_RETRY_COUNT {
+        show_dialog(
+            &task.app_handle,
+            &message,
+            MessageDialogKind::Error,
+            "解压失败",
+        );
+    }
+
+    if success {
+        log_info!("解压任务 [{}] 完成: {}", extract_task_id, message);
+    } else {
+        log_error!("解压任务 [{}] 失败: {}", extract_task_id, message);
+    }
+
+    send_extract_complete_event(&task, success, &message);
+}
+
 /// 通过ID查找下载任务
 ///
 /// 在下载队列中查找指定ID的下载任务
@@ -71,328 +396,27 @@ pub fn find_download_task_by_id(
 /// 此函数使用QueueManager的start_processing方法来处理解压任务，
 /// 同时保留了优先处理没有aria2文件的任务的特殊逻辑。
 pub fn start_extract_queue_manager() {
-    // 处理单个解压任务的函数
     let process_task_fn = |_task_id: String, task: &ExtractTask| {
         let extract_task_id = task.id.clone();
         let download_task_id = task.download_task_id.clone();
-        let file_path = task.file_path.clone();
-        let extract_dir = task.extract_dir.clone();
 
         log_info!(
             "开始处理解压任务 [{}] 关联下载任务 [{}]: 文件={}, 解压目录={}",
             extract_task_id,
             download_task_id,
-            file_path,
-            extract_dir
+            task.file_path,
+            task.extract_dir
         );
 
         let task = task.clone();
+        let task_id = task.id.clone();
 
-        // 在新的异步任务中处理解压操作
         tauri::async_runtime::spawn(async move {
-            // 创建一个作用域来确保任务无论成功失败都会从活跃集合中移除
-            {
-                // 获取文件名（从文件路径中提取）
-                let filename = std::path::Path::new(&task.file_path)
-                    .file_name()
-                    .and_then(|os_str| os_str.to_str())
-                    .unwrap_or("未知文件")
-                    .to_string();
+            process_extract_task(task, &extract_task_id, &download_task_id);
 
-                // 执行解压操作前，检查.aria2临时文件是否存在
-                let aria2_file_path = {
-                    let path = std::path::PathBuf::from(&task.file_path);
-                    let mut aria2_path = path.into_os_string();
-                    aria2_path.push(".aria2");
-                    std::path::PathBuf::from(aria2_path)
-                };
-
-                // 如果存在.aria2临时文件，则等待其消失（优化等待逻辑）
-                if aria2_file_path.exists() {
-                    log_debug!(
-                        "解压任务 [{}]: 开始等待.aria2临时文件消失: {}",
-                        extract_task_id,
-                        aria2_file_path.display()
-                    );
-
-                    // 优化的等待逻辑：增加超时机制并提高检查频率
-                    let max_wait_seconds = 180; // 最多等待3分钟
-                    let mut wait_count = 0;
-                    let start_time = std::time::Instant::now();
-
-                    // 在循环外部创建必要的克隆
-                    let aria2_file_path_str = aria2_file_path.to_string_lossy().to_string();
-                    let app_handle_clone = task.app_handle.clone();
-                    let extract_task_id_clone = extract_task_id.clone();
-                    let download_task_id_clone = task.download_task_id.clone();
-
-                    while aria2_file_path.exists() {
-                        wait_count += 1;
-
-                        // 检查是否超过最大等待时间
-                        let elapsed = start_time.elapsed().as_secs();
-                        if elapsed > max_wait_seconds {
-                            log_warn!(
-                                "解压任务 [{}]: 等待.aria2文件超时 ({}/{})秒",
-                                extract_task_id,
-                                elapsed,
-                                max_wait_seconds
-                            );
-
-                            // 尝试查找相关的下载任务，实现继续下载功能
-                            log_info!(
-                                "解压任务 [{}]: 尝试继续下载任务 [{}]",
-                                extract_task_id,
-                                download_task_id_clone
-                            );
-
-                            // 使用之前添加的find_task_by_id方法查找下载任务
-                            if let Ok(Some(download_task)) =
-                                find_download_task_by_id(&download_task_id_clone)
-                            {
-                                log_info!(
-                                    "找到下载任务 [{}]，开始继续下载",
-                                    download_task_id_clone
-                                );
-
-                                // 创建新的线程来继续下载任务
-                                // 克隆task.file_path以避免所有权问题
-                                let task_file_path_clone = task.file_path.clone();
-                                std::thread::spawn(move || {
-                                    // 从全局ARIA2_RPC_MANAGER获取实例
-                                    let result = {
-                                        if let Ok(mut manager_guard) =
-                                            crate::aria2c::ARIA2_RPC_MANAGER.lock()
-                                        {
-                                            if let Some(manager) = &mut *manager_guard {
-                                                // 从文件路径中提取文件名
-                                                // 使用let绑定创建持久的PathBuf
-                                                let path_buf = PathBuf::from(&aria2_file_path_str);
-                                                let filename = path_buf
-                                                    .file_stem()
-                                                    .and_then(|os_str| os_str.to_str())
-                                                    .unwrap_or("未知文件");
-
-                                                // 调用add_download_sync方法
-                                                manager.add_download_sync(
-                                                    &download_task.url,
-                                                    &std::path::Path::new(&aria2_file_path_str)
-                                                        .parent()
-                                                        .map(|p| p.to_string_lossy().to_string())
-                                                        .unwrap_or("\\".to_string()),
-                                                    filename,
-                                                )
-                                            } else {
-                                                Err("ARIA2 RPC管理器未初始化".to_string())
-                                            }
-                                        } else {
-                                            Err("无法获取ARIA2 RPC管理器锁".to_string())
-                                        }
-                                    };
-
-                                    match result {
-                                        Ok(gid) => {
-                                            log_info!(
-                                                "解压任务 [{}]: 成功继续下载任务 [{}]，新的GID: {}",
-                                                extract_task_id_clone,
-                                                download_task_id_clone,
-                                                gid
-                                            );
-                                            // 发送继续下载成功事件
-                                            let _ = app_handle_clone.emit_to(
-                                                    "main",
-                                                    "download-resumed",
-                                                    &serde_json::json!(
-                                                        {
-                                                            "taskId": download_task_id_clone,
-                                                            "filename": PathBuf::from(&task_file_path_clone)
-                                                                .file_name()
-                                                                .and_then(|os_str| os_str.to_str())
-                                                                .unwrap_or("未知文件"),
-                                                            "message": "成功继续下载任务"
-                                                        }
-                                                    ),
-                                                );
-                                        }
-                                        Err(e) => {
-                                            log_error!(
-                                                "解压任务 [{}]: 继续下载任务 [{}] 失败: {}",
-                                                extract_task_id_clone,
-                                                download_task_id_clone,
-                                                e
-                                            );
-                                        }
-                                    }
-                                });
-                            } else {
-                                log_warn!(
-                                    "解压任务 [{}]: 未找到对应的下载任务 [{}]",
-                                    extract_task_id,
-                                    download_task_id_clone
-                                );
-                            }
-
-                            // 继续解压流程
-                            log_warn!("解压任务 [{}]: 继续解压流程", extract_task_id);
-                            break;
-                        }
-
-                        if wait_count % 20 == 0 {
-                            // 每10秒记录一次日志
-                            log_debug!(
-                                "解压任务 [{}]: 已等待 {} 秒，.aria2文件仍存在: {}",
-                                extract_task_id,
-                                wait_count / 2,
-                                aria2_file_path.display()
-                            );
-                        }
-
-                        // 每500毫秒检查一次文件是否存在
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                    }
-                } else {
-                    log_debug!(
-                        "解压任务 [{}]: 没有找到.aria2临时文件，可以直接解压",
-                        extract_task_id
-                    );
-                }
-
-                // 发送解压开始事件
-                let _ = task.app_handle.emit_to(
-                    "main",
-                    "extract-start",
-                    &serde_json::json!(
-                        {
-                            "taskId": task.download_task_id,
-                            "filename": filename,
-                            "extractDir": task.extract_dir
-                        }
-                    ),
-                );
-
-                log_info!(
-                    "解压任务 [{}]: .aria2临时文件已消失，开始解压文件: {}",
-                    extract_task_id,
-                    task.file_path
-                );
-                let result = extract_with_7zip(
-                    &task.file_path,
-                    &task.extract_dir,
-                    &task.archive_name,
-                    &task.download_task_id,
-                );
-
-                // 定义最大重试次数和解压重试函数
-                const MAX_RETRY_COUNT: u32 = 3;
-                let mut retry_count = 0;
-                let mut final_result = result;
-
-                // 解压失败时进行重试
-                while final_result.is_err() && retry_count < MAX_RETRY_COUNT {
-                    retry_count += 1;
-                    log_warn!(
-                        "解压任务 [{}] 失败，开始第 {} 次重试: {}",
-                        extract_task_id,
-                        retry_count,
-                        final_result.unwrap_err()
-                    );
-
-                    // 等待一段时间后再重试
-                    std::thread::sleep(std::time::Duration::from_secs(2 * retry_count as u64));
-
-                    // 再次尝试解压
-                    log_debug!(
-                        "解压任务 [{}] 第 {} 次重试中...",
-                        extract_task_id,
-                        retry_count
-                    );
-                    final_result = extract_with_7zip(
-                        &task.file_path,
-                        &task.extract_dir,
-                        &task.archive_name,
-                        &task.download_task_id,
-                    );
-                }
-
-                // 只有在解压成功的情况下才删除临时文件
-                // 如果解压失败，保留临时文件以便可能的重试或手动处理
-                if final_result.is_ok() {
-                    if let Err(e) = fs::remove_file(&task.file_path) {
-                        log_warn!(
-                            "解压任务 [{}]: 无法删除临时文件 {}: {}",
-                            extract_task_id,
-                            task.file_path,
-                            e
-                        );
-                    } else {
-                        log_debug!(
-                            "解压任务 [{}]: 成功删除临时文件: {}",
-                            extract_task_id,
-                            task.file_path
-                        );
-                    }
-                } else {
-                    log_warn!(
-                        "解压任务 [{}]: 解压失败，保留临时文件以便排查: {}",
-                        extract_task_id,
-                        task.file_path
-                    );
-                }
-
-                // 更新结果为最终尝试的结果
-                let result = final_result;
-
-                // 构建返回消息
-                let message = match &result {
-                    Ok(msg) => {
-                        if retry_count > 0 {
-                            format!("{} (重试了{}次)", msg, retry_count)
-                        } else {
-                            msg.clone()
-                        }
-                    }
-                    Err(e) => {
-                        if retry_count >= MAX_RETRY_COUNT {
-                            // 显示解压失败对话框
-                            show_dialog(
-                                &task.app_handle,
-                                &format!("解压失败（已尝试{}次）: {}", MAX_RETRY_COUNT, e),
-                                MessageDialogKind::Error,
-                                "解压失败",
-                            );
-                            format!("解压失败（已尝试{}次）: {}", MAX_RETRY_COUNT, e)
-                        } else {
-                            e.to_string()
-                        }
-                    }
-                };
-
-                // 记录解压完成日志
-                if result.is_ok() {
-                    log_info!("解压任务 [{}] 完成: {}", extract_task_id, message);
-                } else {
-                    log_error!("解压任务 [{}] 失败: {}", extract_task_id, message);
-                }
-
-                // 发送解压完成事件通知
-                let _ = task.app_handle.emit_to(
-                    "main",
-                    "extract-complete",
-                    &serde_json::json!(
-                        {
-                            "taskId": task.download_task_id,
-                            "success": result.is_ok(),
-                            "message": message,
-                            "filename": "未知文件".to_string() // 文件名已在下载完成时处理
-                        }
-                    ),
-                );
-            }
-
-            // 确保任务完成后，从队列管理器的活跃任务集合中移除（无论解压成功或失败）
             match EXTRACT_MANAGER.queue.lock() {
                 Ok(mut queue) => {
-                    queue.remove_active_task(&task.id);
+                    queue.remove_active_task(&task_id);
                     log_debug!(
                         "解压任务 [{}] 从活跃任务集合中移除，当前活跃解压任务数: {}",
                         extract_task_id,
@@ -406,16 +430,9 @@ pub fn start_extract_queue_manager() {
         });
     };
 
-    // 获取任务ID的函数
-    // 检查是否应继续处理的函数
-    let should_continue_fn = || !is_app_shutting_down(); // 应用关闭时停止处理
+    let should_continue_fn = || !is_app_shutting_down();
 
-    // 使用QueueManager启动队列处理
-    EXTRACT_MANAGER.start_processing(
-        process_task_fn,
-        1000, // 检查间隔时间（毫秒）
-        should_continue_fn,
-    );
+    EXTRACT_MANAGER.start_processing(process_task_fn, 1000, should_continue_fn);
 }
 
 /// 从Assets中获取7zG.exe路径
