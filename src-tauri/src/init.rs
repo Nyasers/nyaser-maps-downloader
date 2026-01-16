@@ -23,11 +23,48 @@ lazy_static! {
     static ref CLEANUP_CALLED: AtomicBool = AtomicBool::new(false);
 }
 
-// atexit清理函数，作为最后的后备机制
-extern "C" fn atexit_cleanup() {
-    if !CLEANUP_CALLED.swap(true, Ordering::SeqCst) {
-        log_info!("atexit钩子触发，执行资源清理...");
-        cleanup_app_resources_impl();
+// Windows特定：注册进程退出处理程序
+#[cfg(target_os = "windows")]
+fn register_exit_handler() {
+    use winapi::um::consoleapi::SetConsoleCtrlHandler;
+    
+    extern "system" fn console_ctrl_handler(ctrl_type: u32) -> i32 {
+        if ctrl_type == winapi::um::wincon::CTRL_C_EVENT 
+            || ctrl_type == winapi::um::wincon::CTRL_CLOSE_EVENT
+            || ctrl_type == winapi::um::wincon::CTRL_SHUTDOWN_EVENT
+        {
+            if !CLEANUP_CALLED.swap(true, Ordering::SeqCst) {
+                log_info!("控制台控制事件触发，执行资源清理...");
+                cleanup_app_resources_impl();
+            }
+        }
+        0
+    }
+    
+    unsafe {
+        if SetConsoleCtrlHandler(Some(console_ctrl_handler), 1) != 0 {
+            log_info!("Windows控制台控制处理程序注册成功");
+        } else {
+            log_warn!("Windows控制台控制处理程序注册失败");
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn register_exit_handler() {
+    extern "C" fn atexit_cleanup() {
+        if !CLEANUP_CALLED.swap(true, Ordering::SeqCst) {
+            log_info!("atexit钩子触发，执行资源清理...");
+            cleanup_app_resources_impl();
+        }
+    }
+    
+    unsafe {
+        if libc::atexit(atexit_cleanup) == 0 {
+            log_info!("atexit钩子注册成功");
+        } else {
+            log_warn!("atexit钩子注册失败");
+        }
     }
 }
 
@@ -136,14 +173,8 @@ pub fn update_window_title(app_handle: &AppHandle, title: &str) {
 /// - 成功时返回Ok(())
 /// - 失败时返回包含错误信息的Err
 pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
-    // 注册atexit钩子作为最后的后备机制
-    unsafe {
-        if libc::atexit(atexit_cleanup) == 0 {
-            log_info!("atexit钩子注册成功");
-        } else {
-            log_warn!("atexit钩子注册失败");
-        }
-    }
+    // 注册进程退出处理程序
+    register_exit_handler();
 
     // Windows特定：提高进程关闭优先级
     #[cfg(target_os = "windows")]

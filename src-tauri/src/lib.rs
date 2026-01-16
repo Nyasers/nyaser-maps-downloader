@@ -266,7 +266,6 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         // 注册自定义asset协议
         .register_asynchronous_uri_scheme_protocol("asset", asset_protocol_handler)
         .invoke_handler(tauri::generate_handler![

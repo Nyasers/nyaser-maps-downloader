@@ -13,7 +13,6 @@
   },
   "permissions": [
     "core:default",
-    "dialog:default",
-    "fs:default"
+    "dialog:default"
   ]
 }
