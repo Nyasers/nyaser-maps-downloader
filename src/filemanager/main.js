@@ -735,6 +735,14 @@ async function changeDataDir() {
       if (dataDirElement) {
         dataDirElement.textContent = newDir;
       }
+      // 保存配置
+      const config = await invoke("read_config", {
+        configName: "config.json",
+      });
+      await invoke("write_config", {
+        configName: "config.json",
+        config: { ...config, nmd_data: newDir },
+      });
       // 刷新文件列表
       loadFileList();
     }

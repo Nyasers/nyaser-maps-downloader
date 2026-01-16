@@ -3,9 +3,13 @@
 use serde_json::{json, Value};
 use std::fs;
 use tauri::{AppHandle, Manager};
+use tauri_plugin_dialog::MessageDialogKind;
 
 // 导入update_window_title函数
 use crate::init::update_window_title;
+
+// 导入对话框函数
+use crate::dialog_manager::show_blocking_dialog;
 
 /// 读取用户配置
 ///
@@ -116,15 +120,23 @@ pub fn write_config(
                         };
 
                         // 重新初始化目录管理器
-                        let mut dir_manager = match crate::dir_manager::DirManager::with_nmd_data_dir(
-                            std::path::PathBuf::from(data_dir),
-                        ) {
-                            Ok(dm) => dm,
-                            Err(e) => {
-                                crate::log_error!("重新初始化目录管理器失败: {}", e);
-                                return Err(format!("重新初始化目录管理器失败: {}", e));
-                            }
-                        };
+                        let mut dir_manager =
+                            match crate::dir_manager::DirManager::with_nmd_data_dir(
+                                std::path::PathBuf::from(data_dir),
+                            ) {
+                                Ok(dm) => dm,
+                                Err(e) => {
+                                    crate::log_error!("重新初始化目录管理器失败: {}", e);
+                                    let error_msg = format!("初始化目录管理器失败: {}\n\n请检查目录路径是否正确，或选择其他目录。", e);
+                                    show_blocking_dialog(
+                                        &app_handle,
+                                        &error_msg,
+                                        "初始化失败",
+                                        MessageDialogKind::Error,
+                                    );
+                                    panic!("{}", error_msg);
+                                }
+                            };
 
                         // 如果之前有设置 addons_dir，重新设置回去
                         if let Some(addons_dir) = current_addons_dir {
@@ -140,7 +152,17 @@ pub fn write_config(
                         // 初始化aria2c后端
                         if let Err(e) = crate::aria2c::initialize_aria2c_backend() {
                             crate::log_error!("初始化aria2c后端失败: {}", e);
-                            return Err(format!("初始化aria2c后端失败: {}", e));
+                            let error_msg = format!(
+                                "初始化aria2c后端失败: {}\n\n请检查aria2c配置是否正确。",
+                                e
+                            );
+                            show_blocking_dialog(
+                                &app_handle,
+                                &error_msg,
+                                "初始化失败",
+                                MessageDialogKind::Error,
+                            );
+                            panic!("{}", error_msg);
                         }
 
                         // 初始化7z资源
@@ -148,6 +170,16 @@ pub fn write_config(
                         crate::extract_manager::initialize_7z_resources();
                         crate::log_info!("7z 资源初始化完成");
                     }
+                } else {
+                    let error_msg = "未配置数据目录，无法初始化资源";
+                    crate::log_error!("{}", error_msg);
+                    show_blocking_dialog(
+                        &app_handle,
+                        &error_msg,
+                        "初始化失败",
+                        MessageDialogKind::Error,
+                    );
+                    panic!("{}", error_msg);
                 }
             }
             Ok(format!("配置已成功写入: {:?}", config_path))
