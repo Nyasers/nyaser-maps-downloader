@@ -193,9 +193,6 @@ pub async fn process_download_queue(app_handle: AppHandle) {
             }
 
             refresh_download_queue(app_clone.clone()).await.unwrap();
-
-            // 在开始下一个任务前增加等待时间（1秒）
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         });
     };
 
@@ -209,7 +206,7 @@ pub async fn process_download_queue(app_handle: AppHandle) {
     process_queue(
         DOWNLOAD_QUEUE.clone(),
         process_task_fn,
-        100, // 检查间隔时间（毫秒）
+        500, // 检查间隔时间（毫秒）- 从100ms增加到500ms以减少锁争用
         should_continue_fn,
     )
     .await;

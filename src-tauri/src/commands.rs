@@ -106,75 +106,51 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
     // 尝试从配置文件读取 nmd_data 目录
     let nmd_data_dir = crate::config_manager::get_data_dir(app_handle.clone())?;
 
-    // 初始化目录管理器
-    match DIR_MANAGER.lock() {
-        Ok(mut manager) => {
-            if manager.is_none() {
-                // 根据配置创建目录管理器
-                let dir_manager = if let Some(ref data_dir) = nmd_data_dir {
-                    log_info!("使用配置的 nmd_data 目录: {}", data_dir);
-                    crate::dir_manager::DirManager::with_nmd_data_dir(std::path::PathBuf::from(
-                        data_dir,
-                    ))
-                } else {
-                    // 没有配置 nmd_data 目录，弹窗要求配置
-                    log_warn!("未配置 nmd_data 目录，弹窗要求配置");
-                    show_dialog(
-                        &app_handle,
-                        "请先配置数据存储目录。\n\n在文件管理器窗口中点击\"修改目录\"按钮进行配置。",
-                        MessageDialogKind::Warning,
-                        "未配置数据目录",
-                    );
-                    return Err("未配置数据存储目录，请先配置".to_string());
-                };
-
-                *manager = Some(dir_manager.map_err(|e| {
-                    log_error!("目录管理器初始化失败: {}", e);
-                    e
-                })?);
-            }
-        }
-        Err(e) => {
+    // 在一次锁定中完成所有目录管理器操作
+    let (maps_dir, addons_dir) = {
+        let mut manager = DIR_MANAGER.lock().map_err(|e| {
             log_error!("无法锁定目录管理器: {:?}", e);
-            return Err(format!("无法锁定目录管理器: {:?}", e));
+            format!("无法锁定目录管理器: {:?}", e)
+        })?;
+
+        // 初始化目录管理器（如果需要）
+        if manager.is_none() {
+            let dir_manager = if let Some(ref data_dir) = nmd_data_dir {
+                log_info!("使用配置的 nmd_data 目录: {}", data_dir);
+                crate::dir_manager::DirManager::with_nmd_data_dir(std::path::PathBuf::from(data_dir))
+            } else {
+                log_warn!("未配置 nmd_data 目录，弹窗要求配置");
+                show_dialog(
+                    &app_handle,
+                    "请先配置数据存储目录。\n\n在文件管理器窗口中点击\"修改目录\"按钮进行配置。",
+                    MessageDialogKind::Warning,
+                    "未配置数据目录",
+                );
+                return Err("未配置数据存储目录，请先配置".to_string());
+            };
+
+            *manager = Some(dir_manager.map_err(|e| {
+                log_error!("目录管理器初始化失败: {}", e);
+                e
+            })?);
         }
+
+        // 获取 maps_dir 和 addons_dir
+        let maps_dir = manager.as_ref().unwrap().maps_dir();
+        let addons_dir_opt = manager.as_ref().and_then(|dm| dm.addons_dir());
+
+        let addons_dir = match addons_dir_opt {
+            Some(p) => p.to_owned(),
+            None => {
+                log_warn!("未配置 addons_dir");
+                return Err("未配置 addons_dir".to_string());
+            }
+        };
+
+        (maps_dir, addons_dir)
     };
 
-    // 获取 maps 目录路径
-    let maps_dir = match DIR_MANAGER.lock() {
-        Ok(manager) => {
-            if manager.is_none() {
-                return Err("目录管理器未初始化".to_string());
-            }
-            manager.as_ref().unwrap().maps_dir()
-        }
-        Err(e) => {
-            log_error!("无法锁定目录管理器: {:?}", e);
-            return Err(format!("无法锁定目录管理器: {:?}", e));
-        }
-    };
     log_info!("maps目录: {}", maps_dir.display());
-
-    // 检查 /maps 目录是否存在
-    if !maps_dir.exists() {
-        log_info!("maps目录不存在，返回空列表");
-        return Ok(serde_json::Value::Array(vec![]));
-    }
-
-    // 获取 addons_dir
-    let manager_guard = DIR_MANAGER
-        .lock()
-        .map_err(|e| format!("无法锁定目录管理器: {:?}", e))?;
-    let addons_dir_opt = manager_guard.as_ref().and_then(|dm| dm.addons_dir());
-
-    let addons_dir = match addons_dir_opt {
-        Some(p) => p.to_owned(),
-        None => {
-            log_warn!("未配置 addons_dir");
-            return Ok(serde_json::Value::Array(vec![]));
-        }
-    };
-
     log_info!("addons_dir: {}", addons_dir.display());
 
     if !addons_dir.exists() {
@@ -529,64 +505,66 @@ pub async fn install(
 ) -> Result<String, String> {
     log_info!("接收到下载请求: URL={}, Path={}", url, savepath);
 
-    // 锁定并获取目录管理器实例
-    log_debug!("尝试锁定目录管理器...");
-    let mut manager = DIR_MANAGER.lock().map_err(|e| {
-        let app_handle_clone = app_handle.clone();
-        log_error!("无法锁定目录管理器: {:?}", e);
-        // 显示错误对话框
-        show_dialog(
-            &app_handle_clone,
-            &format!("无法锁定目录管理器: {:?}", e),
-            MessageDialogKind::Error,
-            "错误",
-        );
-        format!("无法锁定目录管理器: {:?}", e)
-    })?;
-    log_debug!("目录管理器锁定成功");
-
-    // 如果目录管理器尚未初始化，则进行初始化
-    if manager.is_none() {
-        log_info!("目录管理器未初始化，开始初始化...");
-
-        // 尝试从配置文件读取 nmd_data 目录
-        let nmd_data_dir = crate::config_manager::get_data_dir(app_handle.clone())?;
-
-        // 根据配置创建目录管理器
-        let dir_manager = if let Some(data_dir) = nmd_data_dir {
-            log_info!("使用配置的 nmd_data 目录: {}", data_dir);
-            crate::dir_manager::DirManager::with_nmd_data_dir(std::path::PathBuf::from(data_dir))
-        } else {
-            // 没有配置 nmd_data 目录，弹窗要求配置
-            log_warn!("未配置 nmd_data 目录，弹窗要求配置");
+    // 检查并初始化目录管理器（仅在需要时锁定）
+    let extract_dir = {
+        log_debug!("检查目录管理器状态...");
+        let mut manager = DIR_MANAGER.lock().map_err(|e| {
+            let app_handle_clone = app_handle.clone();
+            log_error!("无法锁定目录管理器: {:?}", e);
             show_dialog(
-                &app_handle.clone(),
-                "请先配置数据存储目录。\n\n在文件管理器窗口中点击\"修改目录\"按钮进行配置。",
-                MessageDialogKind::Warning,
-                "未配置数据目录",
-            );
-            return Err("未配置数据存储目录，请先配置".to_string());
-        };
-
-        *manager = Some(dir_manager.map_err(|e| {
-            log_error!("目录管理器初始化失败: {}", e);
-            // 显示错误对话框
-            show_dialog(
-                &app_handle.clone(),
-                &format!("目录管理器初始化失败: {}", e),
+                &app_handle_clone,
+                &format!("无法锁定目录管理器: {:?}", e),
                 MessageDialogKind::Error,
                 "错误",
             );
-            e
-        })?);
-        log_info!("目录管理器初始化成功");
-    }
+            format!("无法锁定目录管理器: {:?}", e)
+        })?;
 
-    // 获取解压目录路径 - 使用 nmd_data/maps
-    log_debug!("尝试获取解压目录...");
-    let maps_dir = manager.as_ref().unwrap().maps_dir();
-    let extract_dir = maps_dir.to_string_lossy().to_string();
-    log_info!("解压目录设置为: {}", extract_dir);
+        // 如果目录管理器尚未初始化，则进行初始化
+        if manager.is_none() {
+            log_info!("目录管理器未初始化，开始初始化...");
+
+            // 尝试从配置文件读取 nmd_data 目录
+            let nmd_data_dir = crate::config_manager::get_data_dir(app_handle.clone())?;
+
+            // 根据配置创建目录管理器
+            let dir_manager = if let Some(data_dir) = nmd_data_dir {
+                log_info!("使用配置的 nmd_data 目录: {}", data_dir);
+                crate::dir_manager::DirManager::with_nmd_data_dir(std::path::PathBuf::from(
+                    data_dir,
+                ))
+            } else {
+                // 没有配置 nmd_data 目录，弹窗要求配置
+                log_warn!("未配置 nmd_data 目录，弹窗要求配置");
+                show_dialog(
+                    &app_handle.clone(),
+                    "请先配置数据存储目录。\n\n在文件管理器窗口中点击\"修改\"按钮进行配置。",
+                    MessageDialogKind::Warning,
+                    "未配置数据目录",
+                );
+                return Err("未配置数据存储目录，请先配置".to_string());
+            };
+
+            *manager = Some(dir_manager.map_err(|e| {
+                log_error!("目录管理器初始化失败: {}", e);
+                show_dialog(
+                    &app_handle.clone(),
+                    &format!("目录管理器初始化失败: {}", e),
+                    MessageDialogKind::Error,
+                    "错误",
+                );
+                e
+            })?);
+            log_info!("目录管理器初始化成功");
+        }
+
+        // 获取解压目录路径 - 使用 nmd_data/maps
+        log_debug!("获取解压目录...");
+        let maps_dir = manager.as_ref().unwrap().maps_dir();
+        let extract_dir = maps_dir.to_string_lossy().to_string();
+        log_info!("解压目录设置为: {}", extract_dir);
+        extract_dir
+    };
 
     // 生成唯一的任务ID
     let task_id = Uuid::new_v4().to_string();
@@ -629,42 +607,21 @@ pub async fn install(
 
     // 启动下载队列处理（确保队列处理逻辑正在运行）
     log_debug!("检查下载队列处理状态...");
-    {
+    let should_start_processing = {
         let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
-        if !queue.processing_started {
-            log_info!("下载队列处理未启动，开始启动处理线程...");
-            let app_handle_clone = app_handle.clone();
-            tauri::async_runtime::spawn(async move {
-                log_debug!("下载队列处理线程已创建，准备开始处理队列");
-                process_download_queue(app_handle_clone).await;
-            });
-        } else {
-            log_debug!("下载队列处理已在运行中");
-        }
+        !queue.processing_started
     };
 
-    // 额外的安全检查：如果队列不为空，但活跃任务为0，可能表示处理逻辑出现问题
-    {
-        let queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
-        if !queue.waiting_tasks.is_empty()
-            && queue.active_tasks.is_empty()
-            && queue.processing_started
-        {
-            log_warn!("下载队列有任务但无活跃任务，可能需要重置处理状态");
-            // 释放锁后重新启动处理（避免死锁）
-            drop(queue);
-
-            // 尝试重置处理状态并重新启动
-            let mut queue_reset = (&*DOWNLOAD_QUEUE).lock().unwrap();
-            queue_reset.processing_started = false;
-
-            let app_handle_clone = app_handle.clone();
-            tauri::async_runtime::spawn(async move {
-                log_debug!("重新启动下载队列处理线程");
-                process_download_queue(app_handle_clone).await;
-            });
-        }
-    };
+    if should_start_processing {
+        log_info!("下载队列处理未启动，开始启动处理线程...");
+        let app_handle_clone = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            log_debug!("下载队列处理线程已创建，准备开始处理队列");
+            process_download_queue(app_handle_clone).await;
+        });
+    } else {
+        log_debug!("下载队列处理已在运行中");
+    }
 
     // 获取当前队列信息
     log_debug!("获取当前队列信息...");

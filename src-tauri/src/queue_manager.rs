@@ -139,34 +139,58 @@ pub async fn process_queue<T: std::marker::Send + 'static>(
             break;
         }
 
-        // 检查是否有任务
-        let has_tasks = {
-            let q = queue.lock().unwrap();
-            !q.waiting_tasks.is_empty() || !q.active_tasks.is_empty()
-        };
+        // 在一次锁定中完成所有队列检查和任务启动操作
+        let (task_to_process, has_waiting_tasks, has_active_tasks, can_start) = {
+            let mut q = queue.lock().unwrap();
 
-        // 如果没有任务，等待一段时间后继续检查
-        if !has_tasks {
-            time::sleep(Duration::from_millis(sleep_duration)).await;
-            continue;
-        }
+            // 检查是否有任务
+            let has_waiting_tasks = !q.waiting_tasks.is_empty();
+            let has_active_tasks = !q.active_tasks.is_empty();
+            let can_start = q.can_start_new_task();
 
-        // 尝试启动新任务
-        let maybe_task = {
-            queue.lock().unwrap().take_next_task()
+            // 如果没有等待任务且没有活跃任务，退出循环
+            if !has_waiting_tasks && !has_active_tasks {
+                log_debug!("队列中没有任务，退出队列处理循环");
+                q.processing_started = false;
+                return;
+            }
+
+            let task_to_process = if has_waiting_tasks && can_start {
+                // 尝试启动新任务
+                q.take_next_task()
+            } else {
+                None
+            };
+
+            (task_to_process, has_waiting_tasks, has_active_tasks, can_start)
         };
 
         // 如果有任务可以启动，处理该任务
-        if let Some(task_id) = maybe_task {
+        if let Some(task_id) = task_to_process {
             log_debug!("开始处理任务 [{}]", task_id);
 
-            // 处理任务（非阻塞）
-            process_task_fn(task_id.clone(), queue.lock().unwrap().find_task(&task_id).unwrap());
+            // 获取任务并处理（需要再次锁定，但时间很短）
+            let q = queue.lock().unwrap();
+            if let Some(task) = q.find_task(&task_id) {
+                process_task_fn(task_id, task);
+            }
         }
+
+        // 根据队列状态调整等待时间
+        // 如果有活跃任务但无法启动新任务（已达到最大并发数），使用更长的等待时间
+        let sleep_time = if has_active_tasks && !can_start {
+            2000 // 有活跃任务且已达到最大并发数时，等待2秒
+        } else if has_active_tasks && has_waiting_tasks {
+            500 // 有活跃任务且有等待任务时，快速检查（500ms）
+        } else if has_active_tasks {
+            1000 // 有活跃任务但无等待任务时，等待1秒
+        } else {
+            sleep_duration // 只有等待任务时，使用默认等待时间
+        };
 
         // 为了避免CPU占用过高，让出当前线程的执行权
         std::thread::yield_now();
-        time::sleep(Duration::from_millis(50)).await;
+        time::sleep(Duration::from_millis(sleep_time)).await;
     }
 }
 

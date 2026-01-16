@@ -458,7 +458,7 @@ fn start_aria2c_rpc_server(port: u16, secret: &str) -> Result<Child, String> {
         .arg("--max-connection-per-server=16")
         .arg("--min-split-size=1M")
         .arg("--split=16")
-        .arg("--console-log-level=info") // 设置更详细的日志级别以便捕获更多信息
+        .arg("--console-log-level=warn") // 不输出INFO级别日志到stdout
         .stdout(Stdio::piped()) // 捕获stdout输出
         .stderr(Stdio::piped()) // 捕获stderr输出
         .stdin(Stdio::null());
@@ -1462,16 +1462,19 @@ pub async fn download_via_aria2(
         Err("下载任务正在等待引擎初始化，请稍后重试".to_string())
     } else {
         // aria2c已初始化完成，直接执行下载
-        // 获取目录管理器
-        let manager = crate::dir_manager::DIR_MANAGER
-            .lock()
-            .map_err(|e| format!("无法锁定目录管理器: {:?}", e))?;
+        // 获取下载目录（短暂持有锁）
+        let downloads_dir = {
+            let manager = crate::dir_manager::DIR_MANAGER
+                .lock()
+                .map_err(|e| format!("无法锁定目录管理器: {:?}", e))?;
 
-        if manager.is_none() {
-            return Err("目录管理器未初始化".to_string());
-        }
+            if manager.is_none() {
+                return Err("目录管理器未初始化".to_string());
+            }
 
-        let downloads_dir = manager.as_ref().unwrap().downloads_dir();
+            manager.as_ref().unwrap().downloads_dir().clone()
+        };
+
         log_debug!(
             "[{}] 获取下载目录: {}",
             task_id,
