@@ -160,6 +160,7 @@ nyaser-maps-downloader/
     - urlencoding (URL 编码解码)
     - regex (正则表达式)
     - lazy_static (静态变量延迟初始化)
+    - reqwest (HTTP 客户端，用于 aria2c RPC 请求)
   - 构建工具：tauri-build
 
 ## 许可证
