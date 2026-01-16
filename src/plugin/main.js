@@ -14,19 +14,24 @@
           console.log(
             "Nyaser Maps Downloader: 未配置数据存储目录，正在弹出选择对话框..."
           );
-          // 弹出目录选择对话框
-          const selectedDir = await invoke("show_directory_dialog");
+          showOverlay();
+          try {
+            // 弹出目录选择对话框
+            const selectedDir = await invoke("show_directory_dialog");
 
-          // 保存选择的目录
-          await invoke("write_config", {
-            configName: "config.json",
-            config: { ...config, nmd_data: selectedDir },
-          });
+            // 保存选择的目录
+            await invoke("write_config", {
+              configName: "config.json",
+              config: { ...config, nmd_data: selectedDir },
+            });
 
-          console.log(
-            "Nyaser Maps Downloader: 已配置数据存储目录:",
-            selectedDir
-          );
+            console.log(
+              "Nyaser Maps Downloader: 已配置数据存储目录:",
+              selectedDir
+            );
+          } finally {
+            hideOverlay();
+          }
         } else {
           console.log(
             "Nyaser Maps Downloader: 数据存储目录已配置:",
@@ -59,6 +64,23 @@
     const warningDisplay = document.createElement("div");
     warningDisplay.className = "nmd-warning";
     document.body.appendChild(warningDisplay);
+
+    // 创建遮罩层
+    const overlay = document.createElement("div");
+    overlay.className = "nmd-overlay";
+    overlay.style.display = "none";
+    overlay.innerHTML = `<div class="nmd-overlay-content"><div class="nmd-spinner"></div><div class="nmd-overlay-text">等待用户操作...</div></div>`;
+    document.body.appendChild(overlay);
+
+    // 显示遮罩层
+    function showOverlay() {
+      overlay.style.display = "flex";
+    }
+
+    // 隐藏遮罩层
+    function hideOverlay() {
+      overlay.remove();
+    }
 
     // 存储当前活动的下载任务
     const activeTasks = new Map();
