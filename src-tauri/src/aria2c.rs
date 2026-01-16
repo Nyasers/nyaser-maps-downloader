@@ -19,6 +19,7 @@ use std::{
 // 第三方库导入
 extern crate lazy_static;
 use lazy_static::lazy_static;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use tauri::{AppHandle, Emitter};
@@ -507,192 +508,98 @@ fn serialize_request(request: &Aria2JsonRpcRequest) -> Result<String, String> {
     Ok(request_json)
 }
 
-// 构建PowerShell命令
-fn build_powershell_command(url: &str, escaped_json: &str) -> String {
-    format!(
-        "(Invoke-WebRequest -Uri '{}' -Method Post -ContentType 'application/json' -Body '{}' -UseBasicParsing).Content",
-        url,
-        escaped_json
-    )
-}
-
-// 解析ASCII码序列响应
-fn parse_ascii_response(response_text: &str) -> String {
-    let mut decoded_json = String::new();
-    for line in response_text.lines() {
-        if let Ok(ascii_code) = line.trim().parse::<u8>() {
-            decoded_json.push(ascii_code as char);
-        }
-    }
-    decoded_json
-}
-
-// 解析PowerShell对象表示法
-fn parse_powershell_object(trimmed_response: &str) -> Option<String> {
-    if !trimmed_response.contains("@{") {
-        return None;
-    }
-
-    log_debug!("检测到PowerShell对象表示法");
-
-    if let Some(start) = trimmed_response.find("@{") {
-        if let Some(end) = trimmed_response.rfind("}") {
-            let ps_object = &trimmed_response[start..=end];
-            log_debug!("提取的PowerShell对象: {}", ps_object);
-
-            let mut json_obj = String::from("{\n");
-            let pairs: Vec<&str> = ps_object[2..ps_object.len() - 1]
-                .split(';')
-                .map(|s| s.trim())
-                .collect();
-
-            for (i, pair) in pairs.iter().enumerate() {
-                if let Some(equal_pos) = pair.find('=') {
-                    let key = pair[..equal_pos].trim();
-                    let value = pair[equal_pos + 1..].trim();
-
-                    let json_value = if value.starts_with('"') && value.ends_with('"') {
-                        value.to_string()
-                    } else if value.starts_with('[') && value.ends_with(']') {
-                        value.to_string()
-                    } else if value.starts_with('@') {
-                        format!("\"{}\"", value)
-                    } else {
-                        value.to_string()
-                    };
-
-                    json_obj.push_str(&format!("\"{}\": {}", key, json_value));
-                    if i < pairs.len() - 1 {
-                        json_obj.push_str(",");
-                    }
-                    json_obj.push_str("\n");
-                }
-            }
-            json_obj.push_str("}");
-            log_debug!("转换后的JSON对象: {}", json_obj);
-
-            let json_response = format!("{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}}", json_obj);
-            log_debug!("构建的JSON-RPC响应: {}", json_response);
-            return Some(json_response);
-        }
-    }
-    None
-}
-
-// 解析表格格式输出
-fn parse_table_format(trimmed_response: &str) -> Option<String> {
-    let lines: Vec<&str> = trimmed_response.lines().collect();
-    if lines.len() < 3 {
-        return None;
-    }
-
-    let header_line = lines[0].to_lowercase();
-    if !(header_line.contains("id")
-        && header_line.contains("jsonrpc")
-        && header_line.contains("result"))
-    {
-        return None;
-    }
-
-    for line in &lines[2..] {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 3 {
-            let gid = parts[2].to_string();
-            log_info!("从表格格式响应中成功提取GID: {}", gid);
-
-            let json_response = format!("{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"{}\"}}", gid);
-            log_debug!("构建的JSON响应: {}", json_response);
-            return Some(json_response);
-        }
-    }
-    None
-}
-
-// 清理响应，移除可能的PowerShell额外输出
-fn clean_response(response_text: &str) -> Option<String> {
-    if let Some(json_start) = response_text.find('{') {
-        if let Some(json_end) = response_text.rfind('}') {
-            let cleaned_response = &response_text[json_start..=json_end];
-            log_debug!("清理后的响应: {}", cleaned_response);
-            return Some(cleaned_response.to_string());
-        }
-    }
-    None
-}
-
-// 处理PowerShell响应
-fn process_response(
-    output: &std::process::Output,
+// 使用 reqwest 发送 RPC 请求
+async fn send_rpc_request_via_reqwest(
+    manager: &Aria2RpcManager,
     request: &Aria2JsonRpcRequest,
 ) -> Result<String, String> {
-    if !output.status.success() {
-        let error_output = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("PowerShell命令执行失败: {}", error_output));
-    }
+    log_debug!("使用 reqwest 发送 RPC 请求到: {}", manager.url);
+    log_debug!("请求内容: {:?}", request);
 
-    let mut response_text = String::from_utf8_lossy(&output.stdout).to_string();
+    check_process_alive(manager.pid)?;
 
-    if response_text.is_empty() {
-        return Err("RPC响应为空".to_string());
-    }
+    let request_json = serialize_request(request)?;
+    log_debug!("RPC 请求 JSON: {}", request_json);
 
-    if response_text
-        .lines()
-        .all(|line| line.trim().parse::<u8>().is_ok())
-    {
-        log_debug!("检测到ASCII码序列响应，尝试转换为原始JSON");
-        response_text = parse_ascii_response(&response_text);
-    }
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
-    log_debug!("RPC请求成功，响应长度: {}", response_text.len());
-    log_debug!("响应内容: {}", response_text);
+    let max_retries: u8 = 3;
+    let mut retry_interval = Duration::from_millis(500);
+    let mut last_error = "未知错误".to_string();
 
-    let trimmed_response = response_text.trim();
-    if trimmed_response.starts_with('{') {
-        return Ok(response_text);
-    }
+    for attempt in 0..=max_retries {
+        if let Err(e) = check_process_alive(manager.pid) {
+            log_error!("{}", e);
+            reset_rpc_manager_if_needed();
+            return Err(e);
+        }
 
-    log_warn!("响应不是有效的JSON格式，开始尝试解析");
+        match client
+            .post(&manager.url)
+            .header("Content-Type", "application/json")
+            .body(request_json.clone())
+            .send()
+            .await
+        {
+            Ok(response) => {
+                let status = response.status();
+                log_debug!("HTTP 响应状态码: {}", status);
 
-    if let Some(json_response) = parse_powershell_object(trimmed_response) {
-        return Ok(json_response);
-    }
+                if status.is_success() {
+                    match response.text().await {
+                        Ok(text) => {
+                            if text.is_empty() {
+                                last_error = "RPC 响应为空".to_string();
+                                log_warn!("{}", last_error);
+                            } else {
+                                log_debug!("RPC 响应内容: {}", text);
+                                return Ok(text);
+                            }
+                        }
+                        Err(e) => {
+                            last_error = format!("读取响应内容失败: {}", e);
+                            log_warn!("{}", last_error);
+                        }
+                    }
+                } else {
+                    match response.text().await {
+                        Ok(error_text) => {
+                            last_error = format!("HTTP 错误 {}: {}", status, error_text);
+                            log_warn!("{}", last_error);
 
-    if let Some(json_response) = clean_response(&response_text) {
-        return Ok(json_response);
-    }
+                            if error_text.contains("GID") && error_text.contains("is not found") {
+                                return Err("GID_NOT_FOUND".to_string());
+                            }
+                        }
+                        Err(e) => {
+                            last_error = format!("HTTP 错误 {}: {}", status, e);
+                            log_warn!("{}", last_error);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                last_error = format!("HTTP 请求失败: {}", e);
+                log_warn!(
+                    "HTTP 请求错误: {}, 尝试重试 ({}/{})...",
+                    e,
+                    attempt + 1,
+                    max_retries
+                );
+            }
+        }
 
-    if request.method == "aria2.addUri" {
-        if let Some(json_response) = parse_table_format(trimmed_response) {
-            return Ok(json_response);
+        if attempt < max_retries {
+            tokio::time::sleep(retry_interval).await;
+            retry_interval = retry_interval.saturating_mul(2);
         }
     }
 
-    Ok(response_text)
-}
-
-// 执行PowerShell命令
-fn execute_powershell_command(powershell_command: &str) -> Result<std::process::Output, String> {
-    let mut command = Command::new("powershell.exe");
-    command
-        .arg("-Command")
-        .arg(powershell_command)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .creation_flags(0x08000000);
-
-    command
-        .output()
-        .map_err(|e| format!("启动PowerShell进程失败: {}", e))
-}
-
-// 处理GID未找到错误
-fn handle_gid_not_found(error_output: &str) -> Option<String> {
-    if error_output.contains("GID") && error_output.contains("is not found") {
-        log_debug!("检测到GID丢失错误，直接返回GID_NOT_FOUND");
-        return Some("GID_NOT_FOUND".to_string());
-    }
-    None
+    log_error!("RPC 请求失败: {}", last_error);
+    Err(last_error)
 }
 
 // 重置RPC管理器（如果需要）
@@ -708,97 +615,12 @@ fn reset_rpc_manager_if_needed() {
     }
 }
 
-// 使用PowerShell发送RPC请求
-fn send_rpc_request_via_powershell(
-    manager: Aria2RpcManager,
-    request: Aria2JsonRpcRequest,
-) -> Result<String, String> {
-    log_debug!("使用PowerShell发送RPC请求到: {}", manager.url);
-    log_debug!("请求内容: {:?}", request);
-
-    check_process_alive(manager.pid)?;
-
-    let request_json = serialize_request(&request)?;
-
-    let escaped_json = request_json.replace("'", "''");
-
-    let powershell_command = build_powershell_command(&manager.url, &escaped_json);
-
-    log_debug!("PowerShell命令: {}", powershell_command);
-
-    // 定义最大重试次数和初始重试间隔
-    const MAX_RETRIES: u8 = 3;
-    let mut retry_interval = Duration::from_millis(500);
-    let mut last_error = "未知错误".to_string();
-
-    // 执行请求，带重试机制
-    for attempt in 0..=MAX_RETRIES {
-        if let Err(e) = check_process_alive(manager.pid) {
-            log_error!("{}", e);
-            reset_rpc_manager_if_needed();
-            return Err(e);
-        }
-
-        match execute_powershell_command(&powershell_command) {
-            Ok(output) => {
-                if let Some(gid_not_found) =
-                    handle_gid_not_found(&String::from_utf8_lossy(&output.stderr))
-                {
-                    return Err(gid_not_found);
-                }
-
-                match process_response(&output, &request) {
-                    Ok(response) => return Ok(response),
-                    Err(e) => {
-                        last_error = e;
-                        log_warn!(
-                            "PowerShell执行失败 ({}), 尝试重试 ({} of {})...",
-                            last_error,
-                            attempt + 1,
-                            MAX_RETRIES
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                last_error = e.clone();
-                log_warn!(
-                    "PowerShell进程错误: {}, 尝试重试 ({} of {})...",
-                    e,
-                    attempt + 1,
-                    MAX_RETRIES
-                );
-            }
-        }
-
-        // 如果不是最后一次尝试，等待重试间隔
-        if attempt < MAX_RETRIES {
-            std::thread::sleep(retry_interval);
-            // 指数退避
-            retry_interval = retry_interval.saturating_mul(2);
-        }
-    }
-
-    // 所有重试都失败
-    log_error!("RPC请求失败: {}", last_error);
-    Err(last_error)
-}
-
-// 异步发送RPC请求（使用PowerShell）
+// 异步发送RPC请求（使用 reqwest）
 async fn send_rpc_request_async(
     manager: &Aria2RpcManager,
     request: &Aria2JsonRpcRequest,
 ) -> Result<String, String> {
-    // 在单独的线程中执行PowerShell请求，避免阻塞异步运行时
-    let manager_clone = manager.clone();
-    let request_clone = request.clone();
-
-    // 使用tokio::task::spawn_blocking在线程池中执行阻塞操作
-    tokio::task::spawn_blocking(move || {
-        send_rpc_request_via_powershell(manager_clone, request_clone)
-    })
-    .await
-    .map_err(|e| format!("异步任务执行失败: {}", e))?
+    send_rpc_request_via_reqwest(manager, request).await
 }
 
 // 获取下载任务状态
