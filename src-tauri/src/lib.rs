@@ -78,13 +78,40 @@ pub fn get_assets_path(asset_path: &str) -> Result<PathBuf, String> {
 }
 
 // 自定义协议处理函数，用于处理asset://请求
-fn asset_protocol_handler<T: Runtime>(
-    _context: UriSchemeContext<'_, T>,
-    request: Request<Vec<u8>>,
-    responder: UriSchemeResponder,
-) {
-    let path = request.uri().path().trim_start_matches('/').to_string();
+fn get_content_type(path: &str) -> &'static str {
+    match path.split('.').last() {
+        Some("html") => "text/html",
+        Some("js") => "application/javascript",
+        Some("css") => "text/css",
+        Some("json") => "application/json",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        _ => "text/plain",
+    }
+}
+
+fn build_response(content: Vec<u8>, content_type: &'static str) -> Response<Vec<u8>> {
+    Response::builder()
+        .status(200)
+        .header("Content-Type", content_type)
+        .header("Access-Control-Allow-Origin", "*")
+        .body(content)
+        .unwrap()
+}
+
+fn build_error_response() -> Response<Vec<u8>> {
+    Response::builder()
+        .status(404)
+        .header("Access-Control-Allow-Origin", "*")
+        .body(Vec::new())
+        .unwrap()
+}
+
+fn handle_asset_request(path: &str, responder: UriSchemeResponder) {
     log_info!("asset协议请求: {}", path);
+
+    let path = path.to_string();
 
     async_runtime::spawn(async move {
         let file_content = match crate::get_assets_path(&format!("assets/{}", path)) {
@@ -100,36 +127,26 @@ fn asset_protocol_handler<T: Runtime>(
 
         match file_content {
             Ok(content) => {
-                let content_type = match path.split('.').last() {
-                    Some("html") => "text/html",
-                    Some("js") => "application/javascript",
-                    Some("css") => "text/css",
-                    Some("json") => "application/json",
-                    Some("png") => "image/png",
-                    Some("jpg") | Some("jpeg") => "image/jpeg",
-                    Some("gif") => "image/gif",
-                    _ => "text/plain",
-                };
-
-                let response = Response::builder()
-                    .status(200)
-                    .header("Content-Type", content_type)
-                    .header("Access-Control-Allow-Origin", "*")
-                    .body(content)
-                    .unwrap();
+                let content_type = get_content_type(&path);
+                let response = build_response(content, content_type);
                 responder.respond(response);
             }
             Err(error) => {
                 log_error!("asset协议请求失败: {:?}", error);
-                let response = Response::builder()
-                    .status(404)
-                    .header("Access-Control-Allow-Origin", "*")
-                    .body(Vec::new())
-                    .unwrap();
+                let response = build_error_response();
                 responder.respond(response);
             }
         }
     });
+}
+
+fn asset_protocol_handler<T: Runtime>(
+    _context: UriSchemeContext<'_, T>,
+    request: Request<Vec<u8>>,
+    responder: UriSchemeResponder,
+) {
+    let path = request.uri().path().trim_start_matches('/').to_string();
+    handle_asset_request(&path, responder);
 }
 
 // Windows API绑定和更可靠的信号处理
