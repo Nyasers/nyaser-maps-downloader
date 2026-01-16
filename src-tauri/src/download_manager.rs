@@ -76,37 +76,13 @@ pub async fn process_download_queue(app_handle: AppHandle) {
             saveonly
         );
 
-        // 将任务添加到全局活跃任务集合中
-        {
-            let mut active_tasks = (&*ACTIVE_DOWNLOAD_TASKS)
-                .lock()
-                .map_err(|e| format!("无法获取活跃任务锁: {:?}", e))
-                .expect("获取活跃任务锁失败");
-            active_tasks.insert(task_id.clone(), task.clone());
-            log_debug!(
-                "下载任务 [{}] 添加到活跃任务集合，当前活跃任务数: {}",
-                task_id,
-                active_tasks.len()
-            );
-        }
+        add_task_to_active_tasks(&task_id, task);
 
         let app_clone = app_handle.clone();
         let task_clone = task.clone();
 
-        // 发送任务开始事件通知
-        let _ = app_clone.emit_to(
-            "main",
-            "download-task-start",
-            &serde_json::json!(
-                {
-                    "taskId": task.id,
-                    "url": task.url,
-                    "filename": task.filename
-                }
-            ),
-        );
+        send_download_start_event(&app_clone, &task);
 
-        // 在异步任务中处理下载和解压
         tauri::async_runtime::spawn(async move {
             let result = download_and_extract(
                 &task_clone.url,
@@ -118,13 +94,11 @@ pub async fn process_download_queue(app_handle: AppHandle) {
             )
             .await;
 
-            // 发送任务完成事件通知
             let message = match &result {
                 Ok(dir_path) => format!("{}", dir_path),
                 Err(e) => e.to_string(),
             };
 
-            // 记录下载完成日志
             if result.is_ok() {
                 log_info!(
                     "下载任务 [{}] 完成: {}, 解压将在后台进行",
@@ -140,57 +114,13 @@ pub async fn process_download_queue(app_handle: AppHandle) {
                 );
             }
 
-            // 根据下载结果发送不同事件
             if result.is_ok() {
-                let _ = app_clone.emit_to(
-                    "main",
-                    "download-complete",
-                    &serde_json::json!(
-                        {
-                            "taskId": task_clone.id,
-                            "success": true,
-                            "saveonly": saveonly,
-                            "message": message,
-                            "filename": task_clone.filename.clone().unwrap_or("未知文件".to_string())
-                        }
-                    ),
-                );
+                send_download_complete_event(&app_clone, &task_clone, saveonly, &message);
             } else {
-                let _ = app_clone.emit_to(
-                    "main",
-                    "download-failed",
-                    &serde_json::json!(
-                        {
-                            "taskId": task_clone.id,
-                            "filename": task_clone.filename.clone().unwrap_or("未知文件".to_string()),
-                            "error": message
-                        }
-                    ),
-                );
+                send_download_failed_event(&app_clone, &task_clone, &message);
             }
 
-            // 任务完成后，从活跃任务集合中移除
-            {
-                let mut queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
-                queue.remove_active_task(&task_id);
-                log_debug!(
-                    "下载任务 [{}] 从活跃任务集合中移除，当前活跃任务数: {}",
-                    task_id,
-                    queue.active_tasks.len()
-                );
-
-                // 同时从全局活跃任务HashMap中移除
-                let mut active_tasks = (&*ACTIVE_DOWNLOAD_TASKS)
-                    .lock()
-                    .map_err(|e| format!("无法获取活跃任务锁: {:?}", e))
-                    .expect("获取活跃任务锁失败");
-                active_tasks.remove(&task_id);
-                log_debug!(
-                    "下载任务 [{}] 从全局活跃任务HashMap中移除，当前活跃任务数: {}",
-                    task_id,
-                    active_tasks.len()
-                );
-            }
+            remove_task_from_active_tasks(&task_id);
 
             refresh_download_queue(app_clone.clone()).await.unwrap();
         });
@@ -212,6 +142,101 @@ pub async fn process_download_queue(app_handle: AppHandle) {
     .await;
 }
 
+// 添加任务到活跃集合
+fn add_task_to_active_tasks(task_id: &str, task: &DownloadTask) {
+    let mut active_tasks = (&*ACTIVE_DOWNLOAD_TASKS)
+        .lock()
+        .map_err(|e| format!("无法获取活跃任务锁: {:?}", e))
+        .expect("获取活跃任务锁失败");
+    active_tasks.insert(task_id.to_string(), task.clone());
+    log_debug!(
+        "下载任务 [{}] 添加到活跃任务集合，当前活跃任务数: {}",
+        task_id,
+        active_tasks.len()
+    );
+}
+
+// 从活跃集合移除任务
+fn remove_task_from_active_tasks(task_id: &str) {
+    let mut queue = (&*DOWNLOAD_QUEUE).lock().unwrap();
+    queue.remove_active_task(task_id);
+    log_debug!(
+        "下载任务 [{}] 从活跃任务集合中移除，当前活跃任务数: {}",
+        task_id,
+        queue.active_tasks.len()
+    );
+
+    let mut active_tasks = (&*ACTIVE_DOWNLOAD_TASKS)
+        .lock()
+        .map_err(|e| format!("无法获取活跃任务锁: {:?}", e))
+        .expect("获取活跃任务锁失败");
+    active_tasks.remove(task_id);
+    log_debug!(
+        "下载任务 [{}] 从全局活跃任务HashMap中移除，当前活跃任务数: {}",
+        task_id,
+        active_tasks.len()
+    );
+}
+
+// 发送下载开始事件
+fn send_download_start_event(app_handle: &AppHandle, task: &DownloadTask) {
+    let _ = app_handle.emit_to(
+        "main",
+        "download-task-start",
+        &serde_json::json!(
+            {
+                "taskId": task.id,
+                "url": task.url,
+                "filename": task.filename
+            }
+        ),
+    );
+}
+
+// 发送下载完成事件
+fn send_download_complete_event(
+    app_handle: &AppHandle,
+    task: &DownloadTask,
+    saveonly: bool,
+    message: &str,
+) {
+    let _ = app_handle.emit_to(
+        "main",
+        "download-complete",
+        &serde_json::json!(
+            {
+                "taskId": task.id,
+                "success": true,
+                "saveonly": saveonly,
+                "message": message,
+                "filename": task.filename.clone().unwrap_or("未知文件".to_string())
+            }
+        ),
+    );
+}
+
+// 发送下载失败事件
+fn send_download_failed_event(app_handle: &AppHandle, task: &DownloadTask, message: &str) {
+    let _ = app_handle.emit_to(
+        "main",
+        "download-failed",
+        &serde_json::json!(
+            {
+                "taskId": task.id,
+                "filename": task.filename.clone().unwrap_or("未知文件".to_string()),
+                "error": message
+            }
+        ),
+    );
+}
+
+/// 处理下载队列中的任务 - 持续监控队列并启动下载任务
+///
+/// 此函数会持续运行，定期检查队列并根据最大并发任务数启动新的下载任务，支持多文件同时下载。
+/// 在处理每个任务时，会向前端发送任务开始和任务完成的事件通知。
+///
+/// # 参数
+/// - `app_handle`: Tauri应用句柄，用于发送事件通知
 /// 获取下载队列配置文件路径
 ///
 /// 返回下载队列配置文件的完整路径
