@@ -35,6 +35,19 @@
         }
       } catch (error) {
         console.error("Nyaser Maps Downloader: 配置数据存储目录失败:", error);
+        const errorMsg = error.message || JSON.stringify(error);
+        const dialog = window.__TAURI__.dialog;
+        const shouldRetry = await dialog.confirm(
+          `配置数据存储目录失败: ${errorMsg}\n\n程序无法进行初始化，功能无法将正常使用，是否重试？`,
+          {
+            title: "初始化失败",
+            okLabel: "重试",
+            cancelLabel: "取消",
+          }
+        );
+        if (shouldRetry) {
+          await checkDataDirConfig();
+        }
       }
     }
 
