@@ -360,6 +360,7 @@ async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
             .await?;
 
         log_info!("更新安装成功，应用即将重启");
+        init::cleanup_app_resources_for_restart();
         app.restart();
     } else {
         log_info!("更新检查完成，未发现可用更新");

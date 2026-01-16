@@ -27,9 +27,9 @@ lazy_static! {
 #[cfg(target_os = "windows")]
 fn register_exit_handler() {
     use winapi::um::consoleapi::SetConsoleCtrlHandler;
-    
+
     extern "system" fn console_ctrl_handler(ctrl_type: u32) -> i32 {
-        if ctrl_type == winapi::um::wincon::CTRL_C_EVENT 
+        if ctrl_type == winapi::um::wincon::CTRL_C_EVENT
             || ctrl_type == winapi::um::wincon::CTRL_CLOSE_EVENT
             || ctrl_type == winapi::um::wincon::CTRL_SHUTDOWN_EVENT
         {
@@ -40,7 +40,7 @@ fn register_exit_handler() {
         }
         0
     }
-    
+
     unsafe {
         if SetConsoleCtrlHandler(Some(console_ctrl_handler), 1) != 0 {
             log_info!("Windows控制台控制处理程序注册成功");
@@ -58,7 +58,7 @@ fn register_exit_handler() {
             cleanup_app_resources_impl();
         }
     }
-    
+
     unsafe {
         if libc::atexit(atexit_cleanup) == 0 {
             log_info!("atexit钩子注册成功");
@@ -322,6 +322,30 @@ pub fn cleanup_app_resources() {
     if !CLEANUP_CALLED.swap(true, Ordering::SeqCst) {
         cleanup_app_resources_impl();
     }
+}
+
+/// 清理应用程序资源（用于更新重启前）- 只清理资源，不退出应用
+///
+/// 此函数在应用程序更新重启前调用，确保：
+/// 1. aria2c 进程被正确终止
+/// 2. 下载队列被保存
+/// 3. 临时文件被清理
+/// 但不会调用 app.exit()，允许应用正常重启
+pub fn cleanup_app_resources_for_restart() {
+    log_info!("更新重启前清理应用资源...");
+
+    // 设置应用关闭标志，通知其他线程
+    set_app_shutting_down(true);
+
+    // 保存下载队列
+    if let Err(e) = download_manager::save_download_queue() {
+        log_error!("保存下载队列失败: {}", e);
+    }
+
+    // 清理aria2c资源
+    cleanup_aria2c_resources();
+
+    log_info!("更新重启前资源清理完成");
 }
 
 /// 实际的资源清理实现
