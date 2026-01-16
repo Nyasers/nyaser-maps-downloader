@@ -762,4 +762,6 @@ async function changeDataDir() {
       loadFileList();
     });
   }
+  // 初始加载文件列表
+  loadFileList();
 })();
