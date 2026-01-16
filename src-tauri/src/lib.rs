@@ -222,22 +222,29 @@ pub fn run() {
         })
         // 添加应用启动时的初始化逻辑
         .setup(|app| {
-            {
-                let handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    update(handle).await.unwrap();
-                });
-            }
-            let deep_link = app.deep_link();
-            let protocol = "nmd";
-            if let Ok(is_registered) = deep_link.is_registered(protocol) {
-                if !is_registered {
-                    if let Err(e) = deep_link.register(protocol) {
-                        log_error!("注册{}协议失败: {:?}", protocol, e);
-                    } else {
-                        log_info!("{}协议注册成功", protocol);
+            if !cfg!(debug_assertions) {
+                {
+                    let handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        update(handle).await.unwrap();
+                    });
+                }
+                {
+                    let handle = app.handle().clone();
+                    let deep_link = handle.deep_link();
+                    let protocol = "nmd";
+                    if let Ok(is_registered) = deep_link.is_registered(protocol) {
+                        if !is_registered {
+                            if let Err(e) = deep_link.register(protocol) {
+                                log_error!("注册{}协议失败: {:?}", protocol, e);
+                            } else {
+                                log_info!("{}协议注册成功", protocol);
+                            }
+                        }
                     }
                 }
+            } else {
+                log_info!("开发环境，跳过软件更新 & 协议注册");
             }
             Ok(init::initialize_app(app)?)
         })
