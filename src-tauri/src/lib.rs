@@ -28,7 +28,8 @@ fn asset_protocol_handler<T: tauri::Runtime>(
     log_info!("asset协议请求: {}", path);
 
     // 构建asset目录路径
-    let asset_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("asset");
+    let asset_path =
+        std::path::Path::new(std::env::var("CARGO_MANIFEST_DIR").unwrap().as_str()).join("asset");
     let file_path = asset_path.join(&path);
 
     // 在后台线程中读取文件内容
