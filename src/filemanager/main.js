@@ -527,6 +527,13 @@ function formatFileSize(bytes) {
 
 // 初始加载文件列表
 document.addEventListener("DOMContentLoaded", () => {
+  loadDataDir();
+
+  // 添加修改目录按钮事件
+  document
+    .getElementById("changeDirBtn")
+    .addEventListener("click", changeDataDir);
+
   // 使用事件委托处理分组删除按钮点击
   document.getElementById("fileList").addEventListener("click", async (e) => {
     const deleteBtn = e.target.closest(".group-delete-btn");
@@ -755,12 +762,3 @@ async function changeDataDir() {
     });
   }
 }
-
-document.addEventListener("DOMContentLoaded", () => {
-  loadDataDir();
-
-  // 添加修改目录按钮事件
-  document
-    .getElementById("changeDirBtn")
-    .addEventListener("click", changeDataDir);
-});
