@@ -5,7 +5,7 @@ const {
 } = window.__TAURI__;
 
 // 加载文件列表
-async function loadFileList() {
+async function loadFileList(clear = false) {
   try {
     const fileListElement = document.getElementById("fileList");
 
@@ -15,6 +15,9 @@ async function loadFileList() {
       expandedGroups.add(content.id);
     });
     const scrollTop = fileListElement.scrollTop;
+
+    if (clear)
+      fileListElement.innerHTML = `<p class="no-files">正在加载...</p>`;
 
     const groups = await invoke("get_maps");
 
@@ -120,29 +123,32 @@ async function loadFileList() {
             }
 
             // 更新文件列表
-            const groupFilesElement = groupElement;
-            groupFilesElement.innerHTML = "";
+            const groupFilesElement =
+              groupElement.querySelector(".group-files");
+            if (groupFilesElement) {
+              groupFilesElement.innerHTML = "";
 
-            files.forEach((file) => {
-              const isMounted = file.mounted || false;
-              const fileHtml = fileItemTemplate
-                .replace(/\{\{groupKey\}\}/g, groupKey)
-                .replace(/\{\{displayName\}\}/g, file.name)
-                .replace(/\{\{fileName\}\}/g, file.name)
-                .replace(/\{\{fileSize\}\}/g, formatFileSize(file.size))
-                .replace(
-                  /\{\{mountStatusClass\}\}/g,
-                  isMounted ? "mounted" : "unmounted"
-                )
-                .replace(
-                  /\{\{mountStatusText\}\}/g,
-                  isMounted ? "已挂载" : "未挂载"
-                );
+              files.forEach((file) => {
+                const isMounted = file.mounted || false;
+                const fileHtml = fileItemTemplate
+                  .replace(/\{\{groupKey\}\}/g, groupKey)
+                  .replace(/\{\{displayName\}\}/g, file.name)
+                  .replace(/\{\{fileName\}\}/g, file.name)
+                  .replace(/\{\{fileSize\}\}/g, formatFileSize(file.size))
+                  .replace(
+                    /\{\{mountStatusClass\}\}/g,
+                    isMounted ? "mounted" : "unmounted"
+                  )
+                  .replace(
+                    /\{\{mountStatusText\}\}/g,
+                    isMounted ? "已挂载" : "未挂载"
+                  );
 
-              const tempDiv = document.createElement("div");
-              tempDiv.innerHTML = fileHtml;
-              groupFilesElement.appendChild(tempDiv.firstElementChild);
-            });
+                const tempDiv = document.createElement("div");
+                tempDiv.innerHTML = fileHtml;
+                groupFilesElement.appendChild(tempDiv.firstElementChild);
+              });
+            }
           }
         }
       });
@@ -548,6 +554,7 @@ async function loadDataDir() {
 // 修改数据目录
 async function changeDataDir() {
   try {
+    document.getElementById("changeDirBtn").setAttribute("disabled", "");
     const newDir = await invoke("show_directory_dialog");
     if (newDir) {
       const dataDirElement = document.getElementById("dataDir");
@@ -563,15 +570,12 @@ async function changeDataDir() {
         config: { ...config, nmd_data: newDir },
       });
       // 刷新文件列表
-      loadFileList();
+      loadFileList(true);
     }
   } catch (error) {
     console.error("修改数据目录失败:", error);
-    const errorMsg = error.message || JSON.stringify(error);
-    await dialog.message(`修改数据目录失败: ${errorMsg}`, {
-      kind: "error",
-      title: "操作失败",
-    });
+  } finally {
+    document.getElementById("changeDirBtn").removeAttribute("disabled");
   }
 }
 
@@ -723,7 +727,9 @@ async function changeDataDir() {
   });
 
   // 刷新按钮事件
-  document.getElementById("refreshBtn").addEventListener("click", loadFileList);
+  document
+    .getElementById("refreshBtn")
+    .addEventListener("click", () => location.reload());
 
   // 全选按钮事件
   document
@@ -755,14 +761,6 @@ async function changeDataDir() {
     .getElementById("batchDeleteBtn")
     .addEventListener("click", batchDeleteFiles);
 
-  // 监听来自main窗口的refresh-file-list自定义事件
-  listen("refresh-file-list", () => {
-    console.log(
-      "Nyaser Maps Downloader: 收到刷新文件列表事件，开始刷新文件列表"
-    );
-    loadFileList();
-  });
-
   // 初始加载文件列表
-  loadFileList();
+  loadFileList(true);
 })();

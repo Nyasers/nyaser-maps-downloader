@@ -90,16 +90,13 @@
       }
 
       waitForTauriApi()
-        .then(() =>
-          import(
-            decodeURIComponent(
-              window.__TAURI__.core.convertFileSrc("plugin/main.js", "asset")
-            )
-          )
-        )
-        .catch(() => {
-          throw new Error();
-        });
+        .then(() => window.__TAURI__.core.convertFileSrc)
+        .then((f) => f("plugin/main.js", "asset"))
+        .then((s) => decodeURIComponent(s))
+        .then((u) => fetch(u))
+        .then((r) => r.text())
+        .then((c) => new Function(c))
+        .then((f) => f());
     } catch (error) {
       failed = true;
     } finally {

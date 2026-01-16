@@ -1,3 +1,7 @@
+* {
+  transition: all 0.5s ease;
+}
+
 body {
   font-family: Arial, sans-serif;
   margin: 20px;
@@ -11,7 +15,7 @@ h1 {
 }
 
 .container {
-  max-width: 800px;
+  max-width: auto;
   margin: 0 auto;
   background: white;
   padding: 20px;
@@ -398,8 +402,6 @@ h1 {
   padding: 8px 15px;
   border-radius: 3px;
   cursor: pointer;
-  margin-bottom: 15px;
-  margin-left: 10px;
   display: none;
 }
 
@@ -426,7 +428,6 @@ h1 {
   padding: 8px 15px;
   border-radius: 3px;
   cursor: pointer;
-  margin-bottom: 15px;
 }
 
 .refresh-btn:hover {
@@ -440,8 +441,6 @@ h1 {
   padding: 8px 15px;
   border-radius: 3px;
   cursor: pointer;
-  margin-bottom: 15px;
-  margin-left: 10px;
 }
 
 .select-all-btn:hover {
@@ -484,6 +483,11 @@ h1 {
   white-space: nowrap;
 }
 
+.data-dir-actions {
+  display: flex;
+  gap: 10px;
+}
+
 .change-dir-btn {
   background: #2196f3;
   color: white;
@@ -492,7 +496,6 @@ h1 {
   border-radius: 3px;
   cursor: pointer;
   font-size: 14px;
-  transition: all 0.2s ease;
 }
 
 .change-dir-btn:hover:not(:disabled) {
@@ -512,9 +515,23 @@ h1 {
 /* 批量操作按钮容器 */
 .action-buttons {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 15px;
+}
+
+.action-buttons-left {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.action-buttons-right {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 /* 选中已挂载按钮 */
@@ -525,8 +542,6 @@ h1 {
   padding: 8px 15px;
   border-radius: 3px;
   cursor: pointer;
-  margin-bottom: 15px;
-  margin-left: 10px;
 }
 
 .select-mounted-btn:hover {
@@ -541,8 +556,6 @@ h1 {
   padding: 8px 15px;
   border-radius: 3px;
   cursor: pointer;
-  margin-bottom: 15px;
-  margin-left: 10px;
 }
 
 .select-unmounted-btn:hover {
@@ -551,19 +564,17 @@ h1 {
 
 /* 批量挂载按钮 */
 .batch-mount-btn {
-  background: #2196f3;
+  background: #4caf50;
   color: white;
   border: none;
   padding: 8px 15px;
   border-radius: 3px;
   cursor: pointer;
-  margin-bottom: 15px;
-  margin-left: 10px;
   display: none;
 }
 
 .batch-mount-btn:hover:not(:disabled) {
-  background: #0b7dda;
+  background: #45a049;
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
@@ -581,8 +592,6 @@ h1 {
   padding: 8px 15px;
   border-radius: 3px;
   cursor: pointer;
-  margin-bottom: 15px;
-  margin-left: 10px;
   display: none;
 }
 

@@ -78,10 +78,8 @@ pub fn open_file_manager_window(app_handle: AppHandle) -> Result<String, String>
             }
 
             // 发送自定义事件到file_manager窗口，触发文件列表刷新
-            if let Err(e) =
-                app_handle.emit_to("file_manager", "refresh-file-list", &serde_json::json!({}))
-            {
-                log_error!("发送刷新文件列表事件失败: {:?}", e);
+            if let Some(window) = app_handle.get_webview_window("file_manager") {
+                let _ = window.reload();
             }
 
             log_info!("文件管理器窗口已成功打开并发送了刷新文件列表事件");

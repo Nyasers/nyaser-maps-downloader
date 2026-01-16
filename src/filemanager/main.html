@@ -4,24 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>文件管理器 - Nyaser Maps Downloader</title>
-    <script defer>
-      !(async function () {
-        const convertFileSrc = window.__TAURI__.core.convertFileSrc;
+    <script>
+      (async function () {
+        const getAssets = (asset) =>
+          decodeURIComponent(
+            window.__TAURI__.core.convertFileSrc(asset, "asset")
+          );
         document.head.appendChild(
           Object.assign(document.createElement("link"), {
             rel: "stylesheet",
-            href: decodeURIComponent(
-              convertFileSrc("filemanager/main.css", "asset")
-            ),
+            href: getAssets("filemanager/main.css"),
           })
         );
-        await fetch(
-          decodeURIComponent(convertFileSrc("filemanager/main.js", "asset"))
-        )
-          .then((r) => r.text())
-          .then((c) => new Function(c))
-          .then((f) => f());
-      })();
+        return getAssets("filemanager/main.js");
+      })()
+        .then((u) => fetch(u))
+        .then((r) => r.text())
+        .then((c) => new Function(c))
+        .then((f) => f());
     </script>
   </head>
 
@@ -33,26 +33,32 @@
           <label for="dataDir">数据存储目录：</label>
           <span id="dataDir">正在加载...</span>
         </div>
-        <button class="change-dir-btn" id="changeDirBtn">修改</button>
+        <div class="data-dir-actions">
+          <button class="change-dir-btn" id="changeDirBtn">修改</button>
+          <button class="refresh-btn" id="refreshBtn">刷新</button>
+        </div>
       </div>
       <div class="action-buttons">
-        <button class="refresh-btn" id="refreshBtn">刷新</button>
-        <button class="select-all-btn" id="selectAllBtn">全选</button>
-        <button class="select-mounted-btn" id="selectMountedBtn">
-          全选已载
-        </button>
-        <button class="select-unmounted-btn" id="selectUnmountedBtn">
-          全选未载
-        </button>
-        <button class="batch-mount-btn" id="batchMountBtn" disabled>
-          挂载
-        </button>
-        <button class="batch-unmount-btn" id="batchUnmountBtn" disabled>
-          卸载
-        </button>
-        <button class="batch-delete-btn" id="batchDeleteBtn" disabled>
-          删除
-        </button>
+        <div class="action-buttons-left">
+          <button class="select-all-btn" id="selectAllBtn">全选</button>
+          <button class="select-mounted-btn" id="selectMountedBtn">
+            全选已载
+          </button>
+          <button class="select-unmounted-btn" id="selectUnmountedBtn">
+            全选未载
+          </button>
+        </div>
+        <div class="action-buttons-right">
+          <button class="batch-mount-btn" id="batchMountBtn" disabled>
+            批量挂载
+          </button>
+          <button class="batch-unmount-btn" id="batchUnmountBtn" disabled>
+            批量卸载
+          </button>
+          <button class="batch-delete-btn" id="batchDeleteBtn" disabled>
+            批量删除
+          </button>
+        </div>
       </div>
       <div class="file-list" id="fileList">
         <p class="no-files">正在加载...</p>
