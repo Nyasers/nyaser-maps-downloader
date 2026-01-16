@@ -10,16 +10,23 @@ Nyaser Maps Downloader 简化了从 maps.nyase.ru 网站获取地图资源的过
 
 - **一键下载**：通过 HTML 注入技术，自动拦截并处理地图下载请求，简化下载流程
 - **高效下载管理**：使用 aria2c 作为下载后端，支持队列管理和并行下载，确保最佳下载速度
+- **下载队列持久化**：支持下载队列的保存与恢复，应用重启后自动恢复未完成的下载任务
+- **下载任务控制**：支持单个下载任务取消、批量取消、刷新队列等操作，提供实时下载状态显示
 - **自动解压**：下载完成后自动解压地图文件到指定目录，支持多种压缩格式
-- **用户友好界面**：基于 Web 技术的现代化界面，与 maps.nyase.ru 网站无缝集成
-- **文件管理器**：内置文件管理器，方便用户查看、管理和删除已下载的地图文件
+- **解压后自动挂载**：解压完成后自动将地图文件挂载到游戏目录
+- **文件管理器**：内置文件管理器，支持分组显示、批量操作、挂载/卸载、删除等功能
+- **文件挂载系统**：支持将下载的地图文件挂载到游戏目录，方便游戏识别
 - **服务器列表窗口**：集成服务器列表访问功能，方便用户快速查找和加入游戏服务器
 - **配置管理**：支持用户自定义配置，灵活管理应用设置和数据存储目录
 - **符号链接管理**：支持扫描和管理文件符号链接，方便管理游戏地图文件
 - **Deep Link 支持**：支持 nmd:// 协议，可通过外部链接直接启动应用并执行特定操作
 - **自动更新**：集成 Tauri updater 插件，支持应用自动更新和版本检查
 - **智能文件名提取**：支持从百度 PCS 链接等特殊格式中提取文件名
+- **百度网盘支持**：支持百度网盘下载链接的本地代理处理
 - **多窗口支持**：支持主窗口、文件管理器窗口和服务器列表窗口的多窗口管理
+- **资源协议处理**：使用自定义 asset:// 协议加载应用资源，优化资源管理
+- **确认对话框**：重要操作前提供确认对话框，防止误操作
+- **UI 遮罩层**：在关键操作时显示遮罩层，防止用户误触
 
 ## 系统要求
 
@@ -95,6 +102,7 @@ nyaser-maps-downloader/
 │   │   ├── Lang/        # 语言文件
 │   │   ├── 7z.dll
 │   │   ├── 7z.exe
+│   │   ├── 7zG.exe
 │   │   └── aria2c.exe
 │   ├── capabilities/   # Tauri 2.x 权限配置
 │   │   ├── default.json
@@ -136,11 +144,23 @@ nyaser-maps-downloader/
 - **后端**：Rust
 - **框架**：[Tauri 2](https://tauri.app/)
 - **下载引擎**：aria2c
+- **解压工具**：7-Zip (7z.exe)
 - **构建工具**：npm, Cargo
 - **核心依赖**：
-  - 前端：@tauri-apps/cli, @tauri-apps/plugin-dialog, @tauri-apps/plugin-updater, @tauri-apps/plugin-deep-link, @tauri-apps/plugin-single-instance
-  - 后端：serde, serde_json, tokio, uuid, regex, winreg, chrono, winapi, windows-sys, urlencoding, lazy_static, tauri-plugin-deep-link, tauri-plugin-updater, tauri-plugin-single-instance
-  - 构建工具：html-minifier-terser, terser, cssnano, dotenv-cli
+  - 前端：@tauri-apps/cli, cssnano, html-minifier-terser, terser, dotenv-cli
+  - 后端：
+    - Tauri 2.x (protocol-asset feature)
+    - tauri-plugin-dialog, tauri-plugin-deep-link, tauri-plugin-single-instance, tauri-plugin-updater
+    - serde, serde_json (序列化与反序列化)
+    - tokio (异步运行时)
+    - uuid (唯一标识符生成)
+    - chrono (日期时间处理)
+    - winapi, windows-sys (Windows API 绑定)
+    - winreg (Windows 注册表操作)
+    - urlencoding (URL 编码解码)
+    - regex (正则表达式)
+    - lazy_static (静态变量延迟初始化)
+  - 构建工具：tauri-build
 
 ## 许可证
 
