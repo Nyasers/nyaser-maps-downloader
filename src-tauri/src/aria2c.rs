@@ -489,6 +489,225 @@ fn start_aria2c_rpc_server(port: u16, secret: &str) -> Result<Child, String> {
     Ok(child)
 }
 
+// 检查aria2c进程是否存活
+fn check_process_alive(pid: u32) -> Result<(), String> {
+    if !is_process_running(pid) {
+        let error_msg = format!("aria2c进程未运行 (PID: {})，无法发送RPC请求", pid);
+        log_error!("{}", error_msg);
+        return Err(error_msg);
+    }
+    log_debug!("aria2c进程 (PID: {}) 确认存活", pid);
+    Ok(())
+}
+
+// 序列化RPC请求为JSON字符串
+fn serialize_request(request: &Aria2JsonRpcRequest) -> Result<String, String> {
+    let request_json =
+        serde_json::to_string(&request).map_err(|e| format!("序列化请求失败: {}", e))?;
+    Ok(request_json)
+}
+
+// 构建PowerShell命令
+fn build_powershell_command(url: &str, escaped_json: &str) -> String {
+    format!(
+        "(Invoke-WebRequest -Uri '{}' -Method Post -ContentType 'application/json' -Body '{}' -UseBasicParsing).Content",
+        url,
+        escaped_json
+    )
+}
+
+// 解析ASCII码序列响应
+fn parse_ascii_response(response_text: &str) -> String {
+    let mut decoded_json = String::new();
+    for line in response_text.lines() {
+        if let Ok(ascii_code) = line.trim().parse::<u8>() {
+            decoded_json.push(ascii_code as char);
+        }
+    }
+    decoded_json
+}
+
+// 解析PowerShell对象表示法
+fn parse_powershell_object(trimmed_response: &str) -> Option<String> {
+    if !trimmed_response.contains("@{") {
+        return None;
+    }
+
+    log_debug!("检测到PowerShell对象表示法");
+
+    if let Some(start) = trimmed_response.find("@{") {
+        if let Some(end) = trimmed_response.rfind("}") {
+            let ps_object = &trimmed_response[start..=end];
+            log_debug!("提取的PowerShell对象: {}", ps_object);
+
+            let mut json_obj = String::from("{\n");
+            let pairs: Vec<&str> = ps_object[2..ps_object.len() - 1]
+                .split(';')
+                .map(|s| s.trim())
+                .collect();
+
+            for (i, pair) in pairs.iter().enumerate() {
+                if let Some(equal_pos) = pair.find('=') {
+                    let key = pair[..equal_pos].trim();
+                    let value = pair[equal_pos + 1..].trim();
+
+                    let json_value = if value.starts_with('"') && value.ends_with('"') {
+                        value.to_string()
+                    } else if value.starts_with('[') && value.ends_with(']') {
+                        value.to_string()
+                    } else if value.starts_with('@') {
+                        format!("\"{}\"", value)
+                    } else {
+                        value.to_string()
+                    };
+
+                    json_obj.push_str(&format!("\"{}\": {}", key, json_value));
+                    if i < pairs.len() - 1 {
+                        json_obj.push_str(",");
+                    }
+                    json_obj.push_str("\n");
+                }
+            }
+            json_obj.push_str("}");
+            log_debug!("转换后的JSON对象: {}", json_obj);
+
+            let json_response = format!("{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}}", json_obj);
+            log_debug!("构建的JSON-RPC响应: {}", json_response);
+            return Some(json_response);
+        }
+    }
+    None
+}
+
+// 解析表格格式输出
+fn parse_table_format(trimmed_response: &str) -> Option<String> {
+    let lines: Vec<&str> = trimmed_response.lines().collect();
+    if lines.len() < 3 {
+        return None;
+    }
+
+    let header_line = lines[0].to_lowercase();
+    if !(header_line.contains("id")
+        && header_line.contains("jsonrpc")
+        && header_line.contains("result"))
+    {
+        return None;
+    }
+
+    for line in &lines[2..] {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 3 {
+            let gid = parts[2].to_string();
+            log_info!("从表格格式响应中成功提取GID: {}", gid);
+
+            let json_response = format!("{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"{}\"}}", gid);
+            log_debug!("构建的JSON响应: {}", json_response);
+            return Some(json_response);
+        }
+    }
+    None
+}
+
+// 清理响应，移除可能的PowerShell额外输出
+fn clean_response(response_text: &str) -> Option<String> {
+    if let Some(json_start) = response_text.find('{') {
+        if let Some(json_end) = response_text.rfind('}') {
+            let cleaned_response = &response_text[json_start..=json_end];
+            log_debug!("清理后的响应: {}", cleaned_response);
+            return Some(cleaned_response.to_string());
+        }
+    }
+    None
+}
+
+// 处理PowerShell响应
+fn process_response(
+    output: &std::process::Output,
+    request: &Aria2JsonRpcRequest,
+) -> Result<String, String> {
+    if !output.status.success() {
+        let error_output = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("PowerShell命令执行失败: {}", error_output));
+    }
+
+    let mut response_text = String::from_utf8_lossy(&output.stdout).to_string();
+
+    if response_text.is_empty() {
+        return Err("RPC响应为空".to_string());
+    }
+
+    if response_text
+        .lines()
+        .all(|line| line.trim().parse::<u8>().is_ok())
+    {
+        log_debug!("检测到ASCII码序列响应，尝试转换为原始JSON");
+        response_text = parse_ascii_response(&response_text);
+    }
+
+    log_debug!("RPC请求成功，响应长度: {}", response_text.len());
+    log_debug!("响应内容: {}", response_text);
+
+    let trimmed_response = response_text.trim();
+    if trimmed_response.starts_with('{') {
+        return Ok(response_text);
+    }
+
+    log_warn!("响应不是有效的JSON格式，开始尝试解析");
+
+    if let Some(json_response) = parse_powershell_object(trimmed_response) {
+        return Ok(json_response);
+    }
+
+    if let Some(json_response) = clean_response(&response_text) {
+        return Ok(json_response);
+    }
+
+    if request.method == "aria2.addUri" {
+        if let Some(json_response) = parse_table_format(trimmed_response) {
+            return Ok(json_response);
+        }
+    }
+
+    Ok(response_text)
+}
+
+// 执行PowerShell命令
+fn execute_powershell_command(powershell_command: &str) -> Result<std::process::Output, String> {
+    let mut command = Command::new("powershell.exe");
+    command
+        .arg("-Command")
+        .arg(powershell_command)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(0x08000000);
+
+    command
+        .output()
+        .map_err(|e| format!("启动PowerShell进程失败: {}", e))
+}
+
+// 处理GID未找到错误
+fn handle_gid_not_found(error_output: &str) -> Option<String> {
+    if error_output.contains("GID") && error_output.contains("is not found") {
+        log_debug!("检测到GID丢失错误，直接返回GID_NOT_FOUND");
+        return Some("GID_NOT_FOUND".to_string());
+    }
+    None
+}
+
+// 重置RPC管理器（如果需要）
+fn reset_rpc_manager_if_needed() {
+    match try_lock_with_timeout(&ARIA2_RPC_MANAGER, 1000) {
+        Some(mut manager) => {
+            log_info!("检测到aria2c进程关闭，主动重置全局RPC管理器");
+            *manager = None;
+        }
+        None => {
+            log_warn!("获取RPC管理器锁超时，无法重置全局RPC管理器");
+        }
+    }
+}
+
 // 使用PowerShell发送RPC请求
 fn send_rpc_request_via_powershell(
     manager: Aria2RpcManager,
@@ -497,31 +716,13 @@ fn send_rpc_request_via_powershell(
     log_debug!("使用PowerShell发送RPC请求到: {}", manager.url);
     log_debug!("请求内容: {:?}", request);
 
-    // 检查aria2c进程是否存活
-    if !is_process_running(manager.pid) {
-        let error_msg = format!("aria2c进程未运行 (PID: {})，无法发送RPC请求", manager.pid);
-        log_error!("{}", error_msg);
-        return Err(error_msg);
-    }
-    log_debug!("aria2c进程 (PID: {}) 确认存活", manager.pid);
+    check_process_alive(manager.pid)?;
 
-    // 将请求序列化为JSON字符串
-    let request_json =
-        serde_json::to_string(&request).map_err(|e| format!("序列化请求失败: {}", e))?;
+    let request_json = serialize_request(&request)?;
 
-    // 转义JSON字符串中的引号，使其能在PowerShell命令中使用
-    // 在PowerShell中，单引号内的字符串需要转义单引号，而不是双引号
     let escaped_json = request_json.replace("'", "''");
 
-    // 构建PowerShell命令
-    // 使用Invoke-WebRequest代替Invoke-RestMethod以获取原始JSON响应
-    // 添加-UseBasicParsing以在没有Internet Explorer的环境中也能工作
-    // 使用.Content获取原始响应内容
-    let powershell_command = format!(
-        "(Invoke-WebRequest -Uri '{}' -Method Post -ContentType 'application/json' -Body '{}' -UseBasicParsing).Content",
-        manager.url,
-        escaped_json
-    );
+    let powershell_command = build_powershell_command(&manager.url, &escaped_json);
 
     log_debug!("PowerShell命令: {}", powershell_command);
 
@@ -532,215 +733,35 @@ fn send_rpc_request_via_powershell(
 
     // 执行请求，带重试机制
     for attempt in 0..=MAX_RETRIES {
-        // 在每次尝试前检查aria2c进程是否存活
-        if !is_process_running(manager.pid) {
-            let error_msg = format!(
-                "aria2c进程已终止 (PID: {})，无法继续发送RPC请求",
-                manager.pid
-            );
-            log_error!("{}", error_msg);
-
-            // 主动重置全局RPC管理器，以便其他线程能够创建新的实例
-            match try_lock_with_timeout(&ARIA2_RPC_MANAGER, 1000) {
-                Some(mut global_manager) => {
-                    log_info!("检测到aria2c进程关闭，主动重置全局RPC管理器");
-                    *global_manager = None;
-                }
-                None => {
-                    log_warn!("获取RPC管理器锁超时，无法重置全局RPC管理器");
-                }
-            }
-
-            return Err(error_msg);
+        if let Err(e) = check_process_alive(manager.pid) {
+            log_error!("{}", e);
+            reset_rpc_manager_if_needed();
+            return Err(e);
         }
 
-        // 创建PowerShell进程
-        let mut command = Command::new("powershell.exe");
-        command
-            .arg("-Command")
-            .arg(&powershell_command)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        // 隐藏窗口运行
-        command.creation_flags(0x08000000); // CREATE_NO_WINDOW 标志
-
-        // 执行命令
-        match command.output() {
+        match execute_powershell_command(&powershell_command) {
             Ok(output) => {
-                // 检查命令是否成功执行
-                if output.status.success() {
-                    // 读取响应内容
-                    let mut response_text = String::from_utf8_lossy(&output.stdout).to_string();
+                if let Some(gid_not_found) =
+                    handle_gid_not_found(&String::from_utf8_lossy(&output.stderr))
+                {
+                    return Err(gid_not_found);
+                }
 
-                    // 检查响应是否为空
-                    if !response_text.is_empty() {
-                        // 处理可能的ASCII码序列（例如从Invoke-WebRequest返回的响应）
-                        if response_text
-                            .lines()
-                            .all(|line| line.trim().parse::<u8>().is_ok())
-                        {
-                            log_debug!("检测到ASCII码序列响应，尝试转换为原始JSON");
-                            let mut decoded_json = String::new();
-
-                            for line in response_text.lines() {
-                                if let Ok(ascii_code) = line.trim().parse::<u8>() {
-                                    decoded_json.push(ascii_code as char);
-                                }
-                            }
-
-                            response_text = decoded_json;
-                        }
-
-                        log_debug!("RPC请求成功，响应长度: {}", response_text.len());
-                        // 记录完整响应内容用于调试
-                        log_debug!("响应内容: {}", response_text);
-                        // 检查响应是否以'{'开始，确保是有效的JSON
-                        let trimmed_response = response_text.trim();
-                        if trimmed_response.starts_with('{') {
-                            // 已经是有效的JSON格式
-                            return Ok(response_text);
-                        } else {
-                            log_warn!("响应不是有效的JSON格式，开始尝试解析");
-
-                            // 检查是否包含PowerShell对象表示法(@{...})
-                            if trimmed_response.contains("@{") {
-                                log_debug!("检测到PowerShell对象表示法");
-
-                                // 对于复杂命令(tellStatus等)，尝试从PowerShell对象转换
-                                if request.method == "aria2.tellStatus" {
-                                    // 提取PowerShell对象部分
-                                    if let Some(start) = trimmed_response.find("@{") {
-                                        if let Some(end) = trimmed_response.rfind("}") {
-                                            let ps_object = &trimmed_response[start..=end];
-                                            log_debug!("提取的PowerShell对象: {}", ps_object);
-
-                                            // 简单的PowerShell对象到JSON的转换
-                                            // 注意：这是一个简化版本，可能需要根据实际情况进行调整
-                                            let mut json_obj = String::from("{\n");
-                                            let pairs: Vec<&str> = ps_object
-                                                [2..ps_object.len() - 1]
-                                                .split(';')
-                                                .map(|s| s.trim())
-                                                .collect();
-
-                                            for (i, pair) in pairs.iter().enumerate() {
-                                                if let Some(equal_pos) = pair.find('=') {
-                                                    let key = pair[..equal_pos].trim();
-                                                    let value = pair[equal_pos + 1..].trim();
-
-                                                    // 处理不同类型的值
-                                                    let json_value = if value.starts_with('"')
-                                                        && value.ends_with('"')
-                                                    {
-                                                        // 字符串值
-                                                        value.to_string()
-                                                    } else if value.starts_with('[')
-                                                        && value.ends_with(']')
-                                                    {
-                                                        // 数组值
-                                                        value.to_string()
-                                                    } else if value.starts_with('@') {
-                                                        // 嵌套对象
-                                                        // 这里简化处理，实际可能需要递归解析
-                                                        format!("\"{}\"", value)
-                                                    } else {
-                                                        // 数字或布尔值
-                                                        value.to_string()
-                                                    };
-
-                                                    json_obj.push_str(&format!(
-                                                        "\"{}\": {}",
-                                                        key, json_value
-                                                    ));
-                                                    if i < pairs.len() - 1 {
-                                                        json_obj.push_str(",");
-                                                    }
-                                                    json_obj.push_str("\n");
-                                                }
-                                            }
-                                            json_obj.push_str("}");
-                                            log_debug!("转换后的JSON对象: {}", json_obj);
-
-                                            // 构建完整的JSON-RPC响应
-                                            let json_response = format!(
-                                                "{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}}",
-                                                json_obj
-                                            );
-                                            log_debug!("构建的JSON-RPC响应: {}", json_response);
-                                            return Ok(json_response);
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 尝试清理响应，移除可能的PowerShell额外输出
-                            if let Some(json_start) = response_text.find('{') {
-                                if let Some(json_end) = response_text.rfind('}') {
-                                    let cleaned_response = &response_text[json_start..=json_end];
-                                    log_debug!("清理后的响应: {}", cleaned_response);
-                                    return Ok(cleaned_response.to_string());
-                                }
-                            }
-
-                            // 对于addUri等简单命令，尝试解析PowerShell表格格式输出
-                            // 注意：这种解析只适用于返回简单字符串的命令，不适用于返回复杂对象的命令
-                            if request.method == "aria2.addUri" {
-                                let lines: Vec<&str> = trimmed_response.lines().collect();
-                                if lines.len() >= 3 {
-                                    // 检查是否包含表格标题行
-                                    let header_line = lines[0].to_lowercase();
-                                    if header_line.contains("id")
-                                        && header_line.contains("jsonrpc")
-                                        && header_line.contains("result")
-                                    {
-                                        // 表格格式确认，处理数据行
-                                        for line in &lines[2..] {
-                                            let parts: Vec<&str> =
-                                                line.split_whitespace().collect();
-                                            if parts.len() >= 3 {
-                                                // 提取id, jsonrpc和result(gid)
-                                                let gid = parts[2].to_string();
-                                                log_info!("从表格格式响应中成功提取GID: {}", gid);
-
-                                                // 构建预期的JSON响应格式
-                                                let json_response = format!(
-                                                    "{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"{}\"}}",
-                                                    gid
-                                                );
-                                                log_debug!("构建的JSON响应: {}", json_response);
-                                                return Ok(json_response);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        return Ok(response_text);
-                    } else {
-                        last_error = "RPC响应为空".to_string();
-                    }
-                } else {
-                    // 命令执行失败
-                    let error_output = String::from_utf8_lossy(&output.stderr).to_string();
-                    last_error = format!("PowerShell命令执行失败: {}", error_output);
-                    log_warn!(
-                        "PowerShell执行失败 ({}), 尝试重试 ({} of {})...",
-                        last_error,
-                        attempt + 1,
-                        MAX_RETRIES
-                    );
-
-                    // 检查是否是GID丢失错误
-                    if error_output.contains("GID") && error_output.contains("is not found") {
-                        log_debug!("检测到GID丢失错误，直接返回GID_NOT_FOUND");
-                        return Err("GID_NOT_FOUND".to_string());
+                match process_response(&output, &request) {
+                    Ok(response) => return Ok(response),
+                    Err(e) => {
+                        last_error = e;
+                        log_warn!(
+                            "PowerShell执行失败 ({}), 尝试重试 ({} of {})...",
+                            last_error,
+                            attempt + 1,
+                            MAX_RETRIES
+                        );
                     }
                 }
             }
             Err(e) => {
-                // 进程执行错误
-                last_error = format!("启动PowerShell进程失败: {}", e);
+                last_error = e.clone();
                 log_warn!(
                     "PowerShell进程错误: {}, 尝试重试 ({} of {})...",
                     e,
