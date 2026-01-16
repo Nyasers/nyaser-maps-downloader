@@ -2,7 +2,7 @@
   "name": "nyaser-maps-downloader",
   "displayName": "Nyaser Maps Downloader",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.1.1",
   "type": "module",
   "scripts": {
     "pretauri": "npm run version:sync && node minify.js",
