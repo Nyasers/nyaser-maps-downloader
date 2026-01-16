@@ -579,7 +579,10 @@
       // 加载并注入中间件CSS
       const link = document.createElement("link");
       link.setAttribute("rel", "stylesheet");
-      link.setAttribute("href", "http://asset.localhost/plugin/main.css");
+      link.setAttribute(
+        "href",
+        window.__TAURI__.core.convertFileSrc("plugin/main.css", "asset")
+      );
       document.head.appendChild(link);
 
       // 检查数据存储目录配置

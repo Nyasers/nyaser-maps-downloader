@@ -4,8 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>文件管理器 - Nyaser Maps Downloader</title>
-    <link rel="stylesheet" href="http://asset.localhost/filemanager/main.css" />
-    <script src="http://asset.localhost/filemanager/main.js"></script>
+    <script>
+      const convertFileSrc = window.__TAURI__.core.convertFileSrc;
+      const mainCss = convertFileSrc("filemanager/main.css", "asset");
+      const mainJs = convertFileSrc("filemanager/main.js", "asset");
+      const link = document.createElement("link");
+      link.setAttribute("rel", "stylesheet");
+      link.setAttribute("href", mainCss);
+      document.head.appendChild(link);
+      const script = document.createElement("script");
+      script.setAttribute("src", mainJs);
+      document.head.appendChild(script);
+    </script>
   </head>
 
   <body>

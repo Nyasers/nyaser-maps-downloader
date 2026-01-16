@@ -78,11 +78,7 @@
           const maxAttempts = 10;
           const interval = setInterval(() => {
             attempts++;
-            if (
-              window.__TAURI__ &&
-              window.__TAURI__.core &&
-              window.__TAURI__.core.invoke
-            ) {
+            if (window.__TAURI__?.core?.convertFileSrc) {
               clearInterval(interval);
               resolve();
             } else if (attempts >= maxAttempts) {
@@ -94,7 +90,11 @@
       }
 
       waitForTauriApi()
-        .then(() => import("http://asset.localhost/plugin/main.js"))
+        .then(() =>
+          import(
+            window.__TAURI__.core.convertFileSrc("plugin/main.js", "asset")
+          )
+        )
         .catch(() => {
           throw new Error();
         });
