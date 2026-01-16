@@ -83,9 +83,9 @@ fn center_window_on_screen(window: &WebviewWindow) -> Result<(), Box<dyn std::er
 /// - `title`: 要追加到窗口标题的自定义内容
 pub fn update_window_title(app_handle: &AppHandle, title: &str) {
     if let Some(window) = app_handle.get_webview_window("main") {
-        // 从配置中获取应用名称
         let app_name = app_handle.config().app.windows[0].title.clone();
-        let _ = window.set_title(&format!("{}: {}", app_name, title));
+        let version = app_handle.config().version.clone().unwrap();
+        let _ = window.set_title(&format!("{} v{}: {}", app_name, version, title));
     }
 }
 
