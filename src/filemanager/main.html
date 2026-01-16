@@ -4,21 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>文件管理器 - Nyaser Maps Downloader</title>
-    <script>
-      const convertFileSrc = window.__TAURI__.core.convertFileSrc;
-      const mainCss = decodeURIComponent(
-        convertFileSrc("filemanager/main.css", "asset")
-      );
-      const mainJs = decodeURIComponent(
-        convertFileSrc("filemanager/main.js", "asset")
-      );
-      const link = document.createElement("link");
-      link.setAttribute("rel", "stylesheet");
-      link.setAttribute("href", mainCss);
-      document.head.appendChild(link);
-      const script = document.createElement("script");
-      script.setAttribute("src", mainJs);
-      document.head.appendChild(script);
+    <script defer>
+      !(async function () {
+        const convertFileSrc = window.__TAURI__.core.convertFileSrc;
+        document.head.appendChild(
+          Object.assign(document.createElement("link"), {
+            rel: "stylesheet",
+            href: decodeURIComponent(
+              convertFileSrc("filemanager/main.css", "asset")
+            ),
+          })
+        );
+        await fetch(
+          decodeURIComponent(convertFileSrc("filemanager/main.js", "asset"))
+        )
+          .then((r) => r.text())
+          .then((c) => new Function(c))
+          .then((f) => f());
+      })();
     </script>
   </head>
 

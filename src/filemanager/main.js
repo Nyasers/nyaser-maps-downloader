@@ -525,9 +525,56 @@ function formatFileSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
+// 数据存储目录管理
+async function loadDataDir() {
+  try {
+    const config = await invoke("read_config", { configName: "config.json" });
+    const dataDirElement = document.getElementById("dataDir");
+    if (dataDirElement) {
+      if (config.nmd_data) {
+        dataDirElement.textContent = config.nmd_data;
+      } else {
+        dataDirElement.textContent = "未配置";
+      }
+    }
+  } catch (error) {
+    console.error("加载数据目录失败:", error);
+  }
+}
+
+// 修改数据目录
+async function changeDataDir() {
+  try {
+    const newDir = await invoke("show_directory_dialog");
+    if (newDir) {
+      const dataDirElement = document.getElementById("dataDir");
+      if (dataDirElement) {
+        dataDirElement.textContent = newDir;
+      }
+      // 保存配置
+      const config = await invoke("read_config", {
+        configName: "config.json",
+      });
+      await invoke("write_config", {
+        configName: "config.json",
+        config: { ...config, nmd_data: newDir },
+      });
+      // 刷新文件列表
+      loadFileList();
+    }
+  } catch (error) {
+    console.error("修改数据目录失败:", error);
+    const errorMsg = error.message || JSON.stringify(error);
+    await dialog.message(`修改数据目录失败: ${errorMsg}`, {
+      kind: "error",
+      title: "操作失败",
+    });
+  }
+}
+
 // 初始加载文件列表
-document.addEventListener("DOMContentLoaded", () => {
-  loadDataDir();
+!(async function () {
+  await loadDataDir();
 
   // 添加修改目录按钮事件
   document
@@ -704,61 +751,15 @@ document.addEventListener("DOMContentLoaded", () => {
   document
     .getElementById("batchDeleteBtn")
     .addEventListener("click", batchDeleteFiles);
-});
 
-// 监听窗口show事件，当窗口从隐藏状态重新显示时自动刷新文件列表
-if (window.__TAURI__ && window.__TAURI__.event) {
-  // 监听来自main窗口的refresh-file-list自定义事件
-  window.__TAURI__.event.listen("refresh-file-list", () => {
-    console.log(
-      "Nyaser Maps Downloader: 收到刷新文件列表事件，开始刷新文件列表"
-    );
-    loadFileList();
-  });
-}
-
-// 数据存储目录管理
-async function loadDataDir() {
-  try {
-    const config = await invoke("read_config", { configName: "config.json" });
-    const dataDirElement = document.getElementById("dataDir");
-    if (dataDirElement) {
-      if (config.nmd_data) {
-        dataDirElement.textContent = config.nmd_data;
-      } else {
-        dataDirElement.textContent = "未配置";
-      }
-    }
-  } catch (error) {
-    console.error("加载数据目录失败:", error);
-  }
-}
-
-async function changeDataDir() {
-  try {
-    const newDir = await invoke("show_directory_dialog");
-    if (newDir) {
-      const dataDirElement = document.getElementById("dataDir");
-      if (dataDirElement) {
-        dataDirElement.textContent = newDir;
-      }
-      // 保存配置
-      const config = await invoke("read_config", {
-        configName: "config.json",
-      });
-      await invoke("write_config", {
-        configName: "config.json",
-        config: { ...config, nmd_data: newDir },
-      });
-      // 刷新文件列表
+  // 监听窗口show事件，当窗口从隐藏状态重新显示时自动刷新文件列表
+  if (window.__TAURI__ && window.__TAURI__.event) {
+    // 监听来自main窗口的refresh-file-list自定义事件
+    window.__TAURI__.event.listen("refresh-file-list", () => {
+      console.log(
+        "Nyaser Maps Downloader: 收到刷新文件列表事件，开始刷新文件列表"
+      );
       loadFileList();
-    }
-  } catch (error) {
-    console.error("修改数据目录失败:", error);
-    const errorMsg = error.message || JSON.stringify(error);
-    await dialog.message(`修改数据目录失败: ${errorMsg}`, {
-      kind: "error",
-      title: "操作失败",
     });
   }
-}
+})();
