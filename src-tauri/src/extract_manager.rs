@@ -710,6 +710,18 @@ pub fn extract_with_7zip(
                 target_dir.display(),
                 file_count
             );
+
+            // 自动挂载解压的文件
+            log_info!("开始自动挂载组: {}", archive_name);
+            match crate::commands::mount_group(archive_name.to_string()) {
+                Ok(msg) => {
+                    log_info!("自动挂载成功: {}", msg);
+                }
+                Err(e) => {
+                    log_warn!("自动挂载失败: {}", e);
+                }
+            }
+
             Ok(format!(
                 "解压成功: {} 文件已解压到 {}，共解压 {} 个文件",
                 file_path,
