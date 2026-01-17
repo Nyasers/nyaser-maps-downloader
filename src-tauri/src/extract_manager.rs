@@ -469,53 +469,8 @@ pub fn extract_with_7zip(
         archive_name
     );
 
-    // 检查文件是否存在
-    let file = PathBuf::from(file_path);
-    if !file.exists() {
-        log_error!("解压失败: 文件不存在: {}", file_path);
-        return Err(format!("文件不存在: {}", file_path));
-    }
-
-    // 使用7z.exe命令行版本验证文件是否是有效的压缩文件
-    log_debug!("使用7z l命令验证压缩文件格式: {}", file_path);
-
-    let list_args = [
-        "l",         // 列出命令
-        "-sccUTF-8", // 设置控制台代码页为UTF-8
-        file_path,   // 要检查的文件
-    ];
-
-    log_debug!(
-        "执行验证命令: {} {}",
-        SEVENZ_PATH.display(),
-        list_args.join(" ")
-    );
-
-    let mut list_command = std::process::Command::new(SEVENZ_PATH.as_path());
-    list_command.args(&list_args);
-    list_command.stdout(std::process::Stdio::piped());
-    list_command.stderr(std::process::Stdio::piped());
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        list_command.creation_flags(0x08000000);
-    }
-
-    let list_output = list_command
-        .output()
-        .map_err(|e| format!("无法执行7z l命令: {}", e))?;
-
-    if !list_output.status.success() {
-        let stderr = String::from_utf8_lossy(&list_output.stderr);
-        log_error!("7z l命令失败，文件可能不是有效的压缩文件: {}", stderr);
-        return Err(format!(
-            "文件验证失败: 不是有效的压缩文件或文件已损坏\n\n详细信息:\n{}",
-            stderr
-        ));
-    }
-
-    log_debug!("文件验证成功，是有效的压缩文件");
+    // 验证压缩包
+    validate_archieve(file_path)?;
 
     // extract_dir 已经是 maps 目录（例如 E:\NMD_Data\maps），直接使用
     let maps_dir = PathBuf::from(extract_dir);
@@ -549,7 +504,6 @@ pub fn extract_with_7zip(
         log_error!("创建目标解压目录失败: {}", e);
         return Err(format!("创建目标解压目录失败: {}", e));
     }
-
     /*
     构建7zG.exe命令行参数
         使用x命令解压
@@ -649,4 +603,45 @@ pub fn extract_with_7zip(
         }
         Err(format!("解压失败: {}\n\n详细信息:\n{}", stderr, stdout))
     }
+}
+
+fn validate_archieve(file_path: &str) -> Result<(), String> {
+    let file = PathBuf::from(file_path);
+    if !file.exists() {
+        log_error!("解压失败: 文件不存在: {}", file_path);
+        return Err(format!("文件不存在: {}", file_path));
+    }
+    log_debug!("使用7z l命令验证压缩文件格式: {}", file_path);
+    let list_args = [
+        "l",         // 列出命令
+        "-sccUTF-8", // 设置控制台代码页为UTF-8
+        file_path,   // 要检查的文件
+    ];
+    log_debug!(
+        "执行验证命令: {} {}",
+        SEVENZ_PATH.display(),
+        list_args.join(" ")
+    );
+    let mut command = std::process::Command::new(SEVENZ_PATH.as_path());
+    command.args(&list_args);
+    command.stdout(std::process::Stdio::piped());
+    command.stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let list_output = command
+        .output()
+        .map_err(|e| format!("无法执行7z l命令: {}", e))?;
+    if !list_output.status.success() {
+        let stderr = String::from_utf8_lossy(&list_output.stderr);
+        log_error!("7z l命令失败，文件可能不是有效的压缩文件: {}", stderr);
+        return Err(format!(
+            "文件验证失败: 不是有效的压缩文件或文件已损坏\n\n详细信息:\n{}",
+            stderr
+        ));
+    }
+    log_debug!("文件验证成功，是有效的压缩文件");
+    Ok(())
 }
