@@ -304,7 +304,7 @@
       let re = /\/([^\/?]+)(\?.*)?$/;
       let match = url.match(re);
       if (match && match[1]) {
-        return match[1];
+        return decodeURIComponent(match[1]);
       } else {
         return null;
       }
