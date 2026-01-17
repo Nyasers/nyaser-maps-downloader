@@ -453,17 +453,11 @@ pub fn start_extract_queue_manager() {
 /// - 成功时返回包含解压成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 pub fn extract_with_7zip(file_path: &str) -> Result<String, String> {
-    // 从文件路径中提取压缩包名称（不含扩展名）
     let archive_name = std::path::Path::new(file_path)
-        .file_name()
+        .file_stem()
         .and_then(|os_str| os_str.to_str())
-        .and_then(|filename| {
-            std::path::Path::new(filename)
-                .file_stem()
-                .and_then(|os_str| os_str.to_str())
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| "unknown".to_string());
+        .unwrap_or("unknown")
+        .to_string();
 
     log_debug!(
         "开始解压操作: 文件={}, 子文件夹={}",
@@ -553,7 +547,7 @@ pub fn extract_with_7zip(file_path: &str) -> Result<String, String> {
 
             // 自动挂载解压的文件
             log_info!("开始自动挂载组: {}", archive_name);
-            match crate::commands::mount_group(archive_name.to_string()) {
+            match crate::commands::mount_group(archive_name) {
                 Ok(msg) => {
                     log_info!("自动挂载成功: {}", msg);
                 }
