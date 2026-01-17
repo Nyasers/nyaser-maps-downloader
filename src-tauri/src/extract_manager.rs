@@ -476,24 +476,6 @@ pub fn extract_with_7zip(
         return Err(format!("文件不存在: {}", file_path));
     }
 
-    // 检查文件大小是否合理
-    let file_size = match file.metadata() {
-        Ok(meta) => meta.len(),
-        Err(e) => {
-            log_error!("获取文件大小失败: {}", e);
-            return Err(format!("获取文件大小失败: {}", e));
-        }
-    };
-
-    if file_size < 1 {
-        log_error!("解压失败: 文件大小过小（{}字节），可能已损坏", file_size);
-        return Err(format!("解压失败: 文件大小过小，可能已损坏"));
-    }
-
-    // 添加短暂延迟，确保文件系统有足够时间完成文件写入和释放锁定
-    log_debug!("文件存在且大小正常，等待100毫秒确保文件系统完成操作");
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
     // 使用7z.exe命令行版本验证文件是否是有效的压缩文件
     log_debug!("使用7z l命令验证压缩文件格式: {}", file_path);
 
@@ -513,6 +495,12 @@ pub fn extract_with_7zip(
     list_command.args(&list_args);
     list_command.stdout(std::process::Stdio::piped());
     list_command.stderr(std::process::Stdio::piped());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        list_command.creation_flags(0x08000000);
+    }
 
     let list_output = list_command
         .output()
