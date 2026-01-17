@@ -743,7 +743,7 @@
 
       // 进度事件监听器注册成功
 
-      // 监听下载完成事件（仅表示下载完成，解压还未开始）
+      // 监听下载完成事件（仅表示下载完成，解压将异步进行）
       const downloadedUnlisten = listen("download-complete", (event) => {
         // 接收到下载完成事件
         const { filename, success, message, taskId, saveonly } =
@@ -759,7 +759,7 @@
         const element = activeTasks.get(taskId);
         if (element) {
           if (success) {
-            // 更新任务状态为下载完成，准备解压
+            // 更新任务状态为下载完成
             element.status.textContent = "下载完成";
             element.progress.style.width = "100%";
             element.progressText.textContent = "100%";
@@ -777,12 +777,11 @@
             console.log("Nyaser Maps Downloader: 文件下载完成:", message);
           }
 
-          if (saveonly) {
-            // 延迟5秒后移除任务显示
-            setTimeout(() => {
-              removeTaskElement(taskId);
-            }, 5000);
-          }
+          // 无论是saveonly还是正常下载，都延迟5秒后移除任务显示
+          // 解压任务由解压队列管理，不再在下载队列中显示
+          setTimeout(() => {
+            removeTaskElement(taskId);
+          }, 5000);
         }
       });
 
@@ -797,19 +796,18 @@
           ? decodeURIComponent(filename)
           : "未知文件";
 
-        // 获取任务元素
-        const task = activeTasks.get(taskId);
-        if (task) {
-          // 更新任务状态为解压中
-          task.status.textContent = "解压中";
-          // 在控制台输出解压开始信息
-          console.log(
-            "Nyaser Maps Downloader: 开始解压文件:",
-            decodedFilename,
-            "到目录:",
-            extractDir,
-          );
-        }
+        // 显示解压开始提示
+        warningDisplay.textContent = "正在解压: " + decodedFilename;
+        warningDisplay.style.display = "block";
+        warningDisplay.style.background = "rgba(76, 175, 80, 0.9)";
+
+        // 在控制台输出解压开始信息
+        console.log(
+          "Nyaser Maps Downloader: 开始解压文件:",
+          decodedFilename,
+          "到目录:",
+          extractDir,
+        );
       });
 
       // 监听解压完成事件
@@ -823,28 +821,35 @@
           ? decodeURIComponent(filename)
           : "未知文件";
 
-        // 获取任务元素
-        const task = activeTasks.get(taskId);
-        if (task) {
-          // 更新任务状态
-          if (success) {
-            task.status.textContent = "解压完成";
-            // 在控制台输出解压路径
-            console.log(
-              "Nyaser Maps Downloader: 文件解压完成，解压路径:",
-              message,
-            );
-          } else {
-            task.status.textContent = "解压失败";
-            task.progress.style.background = "#f44336";
-            // 在控制台输出错误信息
-            console.error("Nyaser Maps Downloader: 解压失败:", message);
-          }
+        if (success) {
+          // 显示解压完成提示
+          warningDisplay.textContent = "解压完成: " + decodedFilename;
+          warningDisplay.style.background = "rgba(76, 175, 80, 0.9)";
 
-          // 延迟5秒后移除任务显示
+          // 3秒后隐藏提示
           setTimeout(() => {
-            removeTaskElement(taskId);
-          }, 5e3);
+            warningDisplay.style.display = "none";
+            warningDisplay.style.background = "rgba(255, 152, 0, 0.9)";
+          }, 3000);
+
+          // 在控制台输出解压路径
+          console.log(
+            "Nyaser Maps Downloader: 文件解压完成，解压路径:",
+            message,
+          );
+        } else {
+          // 显示解压失败提示
+          warningDisplay.textContent = "解压失败: " + message;
+          warningDisplay.style.background = "rgba(244, 67, 54, 0.9)";
+
+          // 10秒后隐藏提示
+          setTimeout(() => {
+            warningDisplay.style.display = "none";
+            warningDisplay.style.background = "rgba(255, 152, 0, 0.9)";
+          }, 10000);
+
+          // 在控制台输出错误信息
+          console.error("Nyaser Maps Downloader: 解压失败:", message);
         }
       });
 
@@ -1592,47 +1597,6 @@
             }, 5000);
             return;
           }
-
-          // 监听解压开始事件
-          const extractStartUnlisten = listen("extract-start", (event) => {
-            const { filename } = event.payload || {};
-            if (filename === fileName) {
-              warningDisplay.textContent = "正在解压: " + fileName;
-              warningDisplay.style.display = "block";
-              warningDisplay.style.background = "rgba(76, 175, 80, 0.9)";
-            }
-          });
-
-          // 监听解压完成事件
-          const extractCompleteUnlisten = listen(
-            "extract-complete",
-            (event) => {
-              const { filename, success, message } = event.payload || {};
-              if (filename === fileName) {
-                if (success) {
-                  warningDisplay.textContent = "解压完成: " + fileName;
-                  warningDisplay.style.background = "rgba(76, 175, 80, 0.9)";
-
-                  setTimeout(() => {
-                    warningDisplay.style.display = "none";
-                    warningDisplay.style.background = "rgba(255, 152, 0, 0.9)";
-                  }, 3000);
-                } else {
-                  warningDisplay.textContent = "解压失败: " + message;
-                  warningDisplay.style.background = "rgba(244, 67, 54, 0.9)";
-
-                  setTimeout(() => {
-                    warningDisplay.style.display = "none";
-                    warningDisplay.style.background = "rgba(255, 152, 0, 0.9)";
-                  }, 10000);
-                }
-
-                // 取消监听器
-                extractStartUnlisten();
-                extractCompleteUnlisten();
-              }
-            },
-          );
 
           // 调用后端解压命令
           const result = await window.__TAURI__.core.invoke(
