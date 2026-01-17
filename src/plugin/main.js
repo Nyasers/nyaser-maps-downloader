@@ -295,7 +295,9 @@
     }
 
     function isNormalLink(url) {
-      return url.match(/http(s?):\/\/.+\.nyase\.ru\/(d|p)\/.+/);
+      return url.match(
+        /http(s?):\/\/((maps\.nyase\.ru\/(d|p)\/.+)|(kcdn\.nyase\.ru\/.+))/,
+      );
     }
 
     function getFilenameFromNormalLink(url) {
