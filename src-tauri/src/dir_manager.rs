@@ -25,7 +25,7 @@ lazy_static! {
 // 实现 Drop trait，在程序退出时自动清理临时目录
 pub struct DirManager {
     addons_dir: Option<PathBuf>,
-    downloads_dir: PathBuf,
+    cache_dir: PathBuf,
     maps_dir: PathBuf,
 }
 
@@ -38,7 +38,7 @@ impl DirManager {
     pub fn new() -> Result<Self, String> {
         Ok(Self {
             addons_dir: None,
-            downloads_dir: PathBuf::new(),
+            cache_dir: PathBuf::new(),
             maps_dir: PathBuf::new(),
         })
     }
@@ -53,28 +53,21 @@ impl DirManager {
     /// - 失败时返回包含错误信息的 Err
     pub fn with_nmd_data_dir(nmd_data_dir: PathBuf) -> Result<Self, String> {
         // 确保 nmd_data 目录存在
-        std::fs::create_dir_all(&nmd_data_dir)
-            .map_err(|e| format!("无法创建 nmd_data 目录: {:?}", e))?;
+        fs::create_dir_all(&nmd_data_dir).map_err(|e| format!("无法创建数据目录: {:?}", e))?;
 
-        // 创建 nmd_data/cache 目录（作为下载目录）
-        let downloads_dir = nmd_data_dir.join("cache");
-        std::fs::create_dir_all(&downloads_dir)
-            .map_err(|e| format!("无法创建 cache 目录: {:?}", e))?;
+        // 创建 nmd_data/.cache 目录
+        let cache_dir = nmd_data_dir.join(".cache");
+        fs::create_dir_all(&cache_dir).map_err(|e| format!("无法创建缓存目录: {:?}", e))?;
 
         // 创建 nmd_data/maps 目录
         let maps_dir = nmd_data_dir.join("maps");
-        std::fs::create_dir_all(&maps_dir).map_err(|e| format!("无法创建 maps 目录: {:?}", e))?;
+        fs::create_dir_all(&maps_dir).map_err(|e| format!("无法创建地图目录: {:?}", e))?;
 
         Ok(Self {
             addons_dir: None,
-            downloads_dir,
+            cache_dir,
             maps_dir,
         })
-    }
-
-    /// 获取下载目录路径
-    pub fn downloads_dir(&self) -> PathBuf {
-        self.downloads_dir.to_path_buf()
     }
 
     /// 设置 L4D2 addons 目录
@@ -87,6 +80,11 @@ impl DirManager {
         self.addons_dir.as_ref()
     }
 
+    /// 获取缓存目录路径
+    pub fn cache_dir(&self) -> PathBuf {
+        self.cache_dir.to_path_buf()
+    }
+
     /// 获取 maps 目录路径
     pub fn maps_dir(&self) -> PathBuf {
         self.maps_dir.to_path_buf()
@@ -96,7 +94,7 @@ impl DirManager {
 /// 获取全局下载目录路径
 ///
 /// 如果全局目录管理器尚未初始化，则会自动初始化
-pub fn get_global_downloads_dir() -> Result<PathBuf, String> {
+pub fn get_global_cache_dir() -> Result<PathBuf, String> {
     let mut manager = DIR_MANAGER
         .lock()
         .map_err(|e| format!("无法锁定目录管理器: {:?}", e))?;
@@ -106,8 +104,8 @@ pub fn get_global_downloads_dir() -> Result<PathBuf, String> {
         *manager = Some(DirManager::new()?);
     }
 
-    // 返回下载目录路径的副本
-    Ok(manager.as_ref().unwrap().downloads_dir().to_path_buf())
+    // 返回缓存目录路径的副本
+    Ok(manager.as_ref().unwrap().cache_dir().to_path_buf())
 }
 
 /// 设置全局 L4D2 addons 目录

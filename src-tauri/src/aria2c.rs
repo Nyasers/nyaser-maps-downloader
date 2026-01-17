@@ -1095,10 +1095,10 @@ pub fn cleanup_aria2c_resources() {
     std::thread::sleep(std::time::Duration::from_millis(500));
 
     // 清理可能残留的aria2临时文件
-    if let Ok(downloads_dir) = crate::dir_manager::get_global_downloads_dir() {
+    if let Ok(downloads_dir) = crate::dir_manager::get_global_cache_dir() {
         if downloads_dir.exists() {
             log_info!(
-                "检查并清理下载目录中的aria2临时文件: {}",
+                "检查并清理缓存目录中的临时文件: {}",
                 downloads_dir.to_string_lossy()
             );
             match std::fs::read_dir(downloads_dir) {
@@ -1106,16 +1106,12 @@ pub fn cleanup_aria2c_resources() {
                     for entry in entries {
                         if let Ok(entry) = entry {
                             let path = entry.path();
-                            if let Some(ext) = path.extension() {
-                                if ext == "aria2" {
-                                    log_info!("删除aria2临时文件: {}", path.to_string_lossy());
-                                    let _ = std::fs::remove_file(&path);
-                                }
-                            }
+                            log_info!("删除临时文件: {}", path.to_string_lossy());
+                            let _ = std::fs::remove_file(&path);
                         }
                     }
                 }
-                Err(e) => log_warn!("读取下载目录失败: {}", e),
+                Err(e) => log_warn!("读取缓存目录失败: {}", e),
             }
         }
     }
@@ -1252,7 +1248,7 @@ pub async fn download_via_aria2(
                 return Err("目录管理器未初始化".to_string());
             }
 
-            manager.as_ref().unwrap().downloads_dir().clone()
+            manager.as_ref().unwrap().cache_dir().clone()
         };
 
         log_debug!(
