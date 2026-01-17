@@ -22,6 +22,8 @@ pub struct ExtractTask {
     pub id: String,
     /// 要解压的文件路径
     pub file_path: String,
+    /// 压缩包名称（用于创建子文件夹）
+    pub archive_name: String,
     /// 应用句柄，用于发送事件通知
     pub app_handle: AppHandle,
     /// 下载任务ID，用于关联下载和解压操作
@@ -289,7 +291,7 @@ fn retry_extract(
             extract_task_id,
             retry_count
         );
-        final_result = extract_with_7zip(&task.file_path);
+        final_result = extract_with_7zip(&task.file_path, &task.archive_name);
     }
 
     final_result
@@ -339,7 +341,7 @@ fn process_extract_task(task: ExtractTask, extract_task_id: &str, download_task_
         task.file_path
     );
 
-    let result = extract_with_7zip(&task.file_path);
+    let result = extract_with_7zip(&task.file_path, &task.archive_name);
 
     let final_result = retry_extract(&task, extract_task_id, result);
 
@@ -448,17 +450,12 @@ pub fn start_extract_queue_manager() {
 ///
 /// # 参数
 /// - `file_path`: 要解压的文件路径
+/// - `archive_name`: 压缩包名称（用于创建子文件夹）
 ///
 /// # 返回值
 /// - 成功时返回包含解压成功信息的Ok
 /// - 失败时返回包含错误信息的Err
-pub fn extract_with_7zip(file_path: &str) -> Result<String, String> {
-    let archive_name = std::path::Path::new(file_path)
-        .file_stem()
-        .and_then(|os_str| os_str.to_str())
-        .unwrap_or("unknown")
-        .to_string();
-
+pub fn extract_with_7zip(file_path: &str, archive_name: &str) -> Result<String, String> {
     log_debug!(
         "开始解压操作: 文件={}, 子文件夹={}",
         file_path,
@@ -547,7 +544,7 @@ pub fn extract_with_7zip(file_path: &str) -> Result<String, String> {
 
             // 自动挂载解压的文件
             log_info!("开始自动挂载组: {}", archive_name);
-            match crate::commands::mount_group(archive_name) {
+            match crate::commands::mount_group(archive_name.to_string()) {
                 Ok(msg) => {
                     log_info!("自动挂载成功: {}", msg);
                 }
