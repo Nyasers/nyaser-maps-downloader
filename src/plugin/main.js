@@ -1517,8 +1517,13 @@
 
               const paths = event.payload.paths;
               if (paths && paths.length > 0) {
-                const filePath = paths[0];
-                handleDroppedFile(filePath);
+                // 依次处理所有拖拽的文件
+                paths.forEach((filePath, index) => {
+                  // 添加延迟以避免同时处理多个文件
+                  setTimeout(() => {
+                    handleDroppedFile(filePath);
+                  }, index * 100);
+                });
               }
             } else {
               console.log("Nyaser Maps Downloader: 文件拖拽已取消");
