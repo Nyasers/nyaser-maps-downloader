@@ -1195,3 +1195,85 @@ pub fn unmount_group(group_name: String) -> Result<String, String> {
     );
     Ok(format!("组卸载完成: 成功卸载 {} 个文件", unmounted_count))
 }
+
+/// 解压拖拽的压缩包文件
+///
+/// 此函数用于处理用户拖拽到主窗口的压缩包文件，
+/// 会自动解压到 maps 目录下，并以压缩包名称创建子文件夹。
+/// 解压完成后会自动挂载到游戏目录。
+///
+/// # 参数
+/// - `file_path`: 要解压的压缩包文件路径
+/// - `app_handle`: Tauri应用句柄，用于发送事件通知
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command]
+pub fn extract_dropped_file(file_path: String, app_handle: AppHandle) -> Result<String, String> {
+    log_info!("接收到拖拽文件解压请求: {}", file_path);
+
+    // 验证文件是否存在
+    let path = std::path::Path::new(&file_path);
+    if !path.exists() {
+        log_error!("文件不存在: {}", file_path);
+        return Err(format!("文件不存在: {}", file_path));
+    }
+
+    if !path.is_file() {
+        log_error!("指定的路径不是文件: {}", file_path);
+        return Err(format!("指定的路径不是文件: {}", file_path));
+    }
+
+    // 提取文件名（不带扩展名）作为压缩包名称
+    let archive_name = path
+        .file_stem()
+        .and_then(|os_str| os_str.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    log_info!("将拖拽文件添加到解压队列: 文件={}, 压缩包名称={}", file_path, archive_name);
+
+    // 生成唯一的任务ID
+    let task_id = uuid::Uuid::new_v4().to_string();
+
+    // 创建解压任务
+    let extract_task = crate::extract_manager::ExtractTask {
+        id: task_id.clone(),
+        file_path: file_path.clone(),
+        archive_name: archive_name.clone(),
+        app_handle: app_handle.clone(),
+        download_task_id: format!("drag-drop-{}", task_id),
+    };
+
+    // 添加任务到解压队列
+    {
+        let mut queue = crate::extract_manager::EXTRACT_MANAGER.queue.lock().map_err(|e| {
+            log_error!("无法获取解压队列锁: {:?}", e);
+            format!("无法获取解压队列锁: {:?}", e)
+        })?;
+        queue.add_task(task_id.clone(), extract_task);
+        log_info!(
+            "拖拽解压任务已添加到队列: ID={}, 文件={}, 当前队列长度: {}",
+            task_id,
+            file_path,
+            queue.waiting_tasks.len()
+        );
+    }
+
+    // 启动解压队列处理（如果尚未启动）
+    let should_start_processing = {
+        let queue = crate::extract_manager::EXTRACT_MANAGER.queue.lock().map_err(|e| {
+            log_error!("无法获取解压队列锁: {:?}", e);
+            format!("无法获取解压队列锁: {:?}", e)
+        })?;
+        !queue.processing_started
+    };
+
+    if should_start_processing {
+        log_info!("解压队列处理未启动，开始启动处理线程...");
+        crate::extract_manager::start_extract_queue_manager();
+    }
+
+    Ok(format!("解压任务已添加到队列，任务ID: {}", task_id))
+}

@@ -304,6 +304,7 @@ pub fn run() {
             commands::unmount_file,
             commands::mount_group,
             commands::unmount_group,
+            commands::extract_dropped_file,
             config_manager::read_config,
             config_manager::write_config,
             config_manager::delete_config,

@@ -12,7 +12,7 @@
         // 检查是否已配置数据存储目录
         if (!config || !config.nmd_data) {
           console.log(
-            "Nyaser Maps Downloader: 未配置数据存储目录，正在弹出选择对话框..."
+            "Nyaser Maps Downloader: 未配置数据存储目录，正在弹出选择对话框...",
           );
           showOverlay();
           try {
@@ -27,7 +27,7 @@
 
             console.log(
               "Nyaser Maps Downloader: 已配置数据存储目录:",
-              selectedDir
+              selectedDir,
             );
           } finally {
             hideOverlay();
@@ -35,7 +35,7 @@
         } else {
           console.log(
             "Nyaser Maps Downloader: 数据存储目录已配置:",
-            config.nmd_data
+            config.nmd_data,
           );
         }
       } catch (error) {
@@ -48,7 +48,7 @@
             title: "初始化失败",
             okLabel: "重试",
             cancelLabel: "取消",
-          }
+          },
         );
         if (shouldRetry) {
           await checkDataDirConfig();
@@ -111,7 +111,7 @@
     function createTaskElement(
       taskId,
       filename,
-      initialStatus = "准备下载..."
+      initialStatus = "准备下载...",
     ) {
       // 创建任务容器
       const taskElement = document.createElement("div");
@@ -355,7 +355,7 @@
           // 尝试移除登录按钮
           try {
             const loginButton = document.querySelector(
-              "#root > div.footer.hope-stack > div > a.hope-anchor.inactive"
+              "#root > div.footer.hope-stack > div > a.hope-anchor.inactive",
             );
             if (loginButton) {
               loginButton.remove();
@@ -363,7 +363,7 @@
 
               // 同样处理另一个元素
               const bar = document.querySelector(
-                "#root > div.footer.hope-stack > div > span"
+                "#root > div.footer.hope-stack > div > span",
               );
               if (bar) {
                 bar.remove();
@@ -389,13 +389,13 @@
           const leftToolbar = document.querySelector("div.left-toolbar-in");
           if (leftToolbar) {
             const settings = document.querySelector(
-              "div.left-toolbar-in > svg:nth-child(3)"
+              "div.left-toolbar-in > svg:nth-child(3)",
             );
             if (settings) {
               // 创建工具栏按钮的函数
               function createToolbarButton(buttonId, svgContent, clickHandler) {
                 const button = settings.parentNode.appendChild(
-                  settings.cloneNode()
+                  settings.cloneNode(),
                 );
                 button.id = buttonId;
                 button.innerHTML = svgContent;
@@ -413,7 +413,7 @@
                 `<path d="M424.8064 0l60.943515 36.615758-61.967515 103.051636h218.329212L673.359127 192.201697 575.706764 372.363636h160.923151c84.743758 0 164.615758 33.978182 224.907637 95.635394A327.059394 327.059394 0 0 1 1055.031855 697.995636v0.496485a327.059394 327.059394 0 0 1-93.494303 229.996606C901.245673 990.145939 821.280582 1024 736.505794 1024H318.403491c-84.743758 0-164.615758-33.978182-224.907636-95.635394A326.997333 326.997333 0 0 1 0.001552 698.492121v-0.496485a327.059394 327.059394 0 0 1 93.494303-229.996606C153.787733 406.341818 233.659733 372.363636 318.403491 372.363636h176.469333l87.505455-161.512727h-221.525334l-30.409697-53.992727L424.83743 0zM736.660945 455.959273H318.372461c-130.451394 0-236.668121 108.606061-236.668122 242.036363v0.496485c0 133.430303 106.216727 242.036364 236.668122 242.036364H736.660945c130.451394 0 236.668121-108.606061 236.668122-242.036364v-0.496485c0-133.430303-106.216727-242.036364-236.668122-242.036363z m-51.386181 138.457212A90.608485 90.608485 0 0 1 775.759127 685.08703 90.608485 90.608485 0 0 1 685.243733 775.757576a90.701576 90.701576 0 0 1 0-181.341091z m-405.566061 9.18497l62.681212 0.155151L342.172703 651.636364H403.395491v93.090909h-61.377939l-0.062061 21.938424L279.274279 766.510545 279.336339 744.727273H248.243976v-93.090909h31.278545l0.124121-48.034909z m405.566061 43.442424c-20.976485 0-38.105212 17.159758-38.105212 38.167273 0 21.007515 17.128727 38.167273 38.105212 38.167272a38.167273 38.167273 0 1 0 0-76.334545z" fill="#1890ff" p-id="1755"></path>`,
                 (event) => {
                   location.href = "steam://rungameid/550";
-                }
+                },
               );
 
               // 创建服务器列表按钮
@@ -423,18 +423,18 @@
                 async (event) => {
                   try {
                     console.log(
-                      "Nyaser Maps Downloader: 调用后端open_server_list_window命令"
+                      "Nyaser Maps Downloader: 调用后端open_server_list_window命令",
                     );
                     await window.__TAURI__.core.invoke(
-                      "open_server_list_window"
+                      "open_server_list_window",
                     );
                   } catch (e) {
                     console.error(
                       "Nyaser Maps Downloader: 打开服务器列表窗口时出错:",
-                      e
+                      e,
                     );
                   }
-                }
+                },
               );
 
               // 创建文件管理器按钮
@@ -444,18 +444,18 @@
                 async (event) => {
                   try {
                     console.log(
-                      "Nyaser Maps Downloader: 调用后端open_file_manager_window命令"
+                      "Nyaser Maps Downloader: 调用后端open_file_manager_window命令",
                     );
                     await window.__TAURI__.core.invoke(
-                      "open_file_manager_window"
+                      "open_file_manager_window",
                     );
                   } catch (e) {
                     console.error(
                       "Nyaser Maps Downloader: 打开文件管理器窗口时出错:",
-                      e
+                      e,
                     );
                   }
-                }
+                },
               );
             }
           }
@@ -466,7 +466,7 @@
       try {
         // 1. 尝试找到第一个目标按钮 - 改为"安装"
         const installButton = document.querySelector(
-          "div.fileinfo > div:nth-child(3) > div > a"
+          "div.fileinfo > div:nth-child(3) > div > a",
         );
         if (installButton && installButton.textContent !== "安装") {
           // 将按钮文本改为"安装"
@@ -476,7 +476,7 @@
 
         // 2. 尝试找到第二个目标按钮 - 复制链接按钮改为"下载并安装"
         const copyLinkButton = document.querySelector(
-          "div.fileinfo > div:nth-child(3) > div > button"
+          "div.fileinfo > div:nth-child(3) > div > button",
         );
         if (copyLinkButton && copyLinkButton.textContent !== "下载") {
           // 将按钮文本改为"下载"
@@ -492,23 +492,23 @@
             async function (event) {
               // 尝试获取链接
               const linkElement = document.querySelector(
-                "div.fileinfo > div:nth-child(3) > div > a"
+                "div.fileinfo > div:nth-child(3) > div > a",
               );
               if (linkElement && linkElement.href) {
                 try {
                   console.log(
                     "Nyaser Maps Downloader: 点击下载按钮，链接地址:",
-                    linkElement.href
+                    linkElement.href,
                   );
                   const filename = getFilename(linkElement.href);
                   if (filename) {
                     console.log(
                       "Nyaser Maps Downloader: 提取到文件名:",
-                      filename
+                      filename,
                     );
                   } else {
                     throw new Error(
-                      "Nyaser Maps Downloader: 从链接中提取文件名失败"
+                      "Nyaser Maps Downloader: 从链接中提取文件名失败",
                     );
                   }
                   const dialog = window.__TAURI__.dialog;
@@ -553,28 +553,28 @@
                         title: "选择模式",
                         okLabel: "仅保存",
                         cancelLabel: "保存并安装",
-                      }
+                      },
                     );
                     await handleDownloadLink(
                       linkElement.href,
                       savepath,
-                      saveonly
+                      saveonly,
                     );
                   }
                 } catch (e) {
                   console.error(
                     "Nyaser Maps Downloader: 处理点击事件时出错:",
                     e.message,
-                    e.stack
+                    e.stack,
                   );
                 }
               } else {
                 console.error(
-                  "Nyaser Maps Downloader: 未找到链接元素或链接地址"
+                  "Nyaser Maps Downloader: 未找到链接元素或链接地址",
                 );
               }
             },
-            true
+            true,
           ); // 使用true参数在捕获阶段执行
 
           console.log('Nyaser Maps Downloader: 成功修改复制链接按钮为"下载"');
@@ -611,8 +611,8 @@
       link.setAttribute(
         "href",
         decodeURIComponent(
-          window.__TAURI__.core.convertFileSrc("plugin/main.css", "asset")
-        )
+          window.__TAURI__.core.convertFileSrc("plugin/main.css", "asset"),
+        ),
       );
       document.head.appendChild(link);
 
@@ -647,7 +647,7 @@
               });
               console.log(
                 "Nyaser Maps Downloader: 检测到下载停滞，已取消下载任务:",
-                taskId
+                taskId,
               );
             } catch (error) {
               console.error("Nyaser Maps Downloader: 取消停滞下载失败:", error);
@@ -740,7 +740,7 @@
               element.cancelButton.parentNode.removeChild(element.cancelButton);
               console.log(
                 "Nyaser Maps Downloader: 下载完成，已移除取消按钮:",
-                taskId
+                taskId,
               );
             }
 
@@ -778,7 +778,7 @@
             "Nyaser Maps Downloader: 开始解压文件:",
             decodedFilename,
             "到目录:",
-            extractDir
+            extractDir,
           );
         }
       });
@@ -803,7 +803,7 @@
             // 在控制台输出解压路径
             console.log(
               "Nyaser Maps Downloader: 文件解压完成，解压路径:",
-              message
+              message,
             );
           } else {
             task.status.textContent = "解压失败";
@@ -841,7 +841,7 @@
         console.log(
           "Nyaser Maps Downloader: 开始下载任务:",
           taskId,
-          decodedFilename
+          decodedFilename,
         );
 
         // 刷新下载队列
@@ -865,7 +865,7 @@
         console.log(
           "Nyaser Maps Downloader: 任务添加到队列:",
           taskId,
-          decodedFilename
+          decodedFilename,
         );
 
         // 刷新下载队列
@@ -889,7 +889,7 @@
           "等待任务:",
           waiting_tasks,
           "活跃任务:",
-          active_tasks
+          active_tasks,
         );
 
         // 更新排队任务UI
@@ -958,7 +958,7 @@
             } catch (error) {
               console.error(
                 "Nyaser Maps Downloader: 取消所有排队任务失败:",
-                error
+                error,
               );
               warningDisplay.textContent =
                 "错误: 取消所有排队任务失败 - " + error.message;
@@ -1034,7 +1034,7 @@
                 } catch (error) {
                   console.error(
                     "Nyaser Maps Downloader: 取消排队任务失败:",
-                    error
+                    error,
                   );
                   warningDisplay.textContent =
                     "错误: 取消排队任务失败 - " + error.message;
@@ -1128,7 +1128,7 @@
             "Nyaser Maps Downloader: 下载失败:",
             decodedFilename,
             "错误:",
-            error
+            error,
           );
 
           // 10秒后自动隐藏错误提示
@@ -1171,7 +1171,7 @@
           console.log(
             "Nyaser Maps Downloader: 下载已取消:",
             taskId,
-            filename || ""
+            filename || "",
           );
 
           // 5秒后移除任务显示
@@ -1231,7 +1231,7 @@
               }
             }
           },
-          true
+          true,
         );
 
         // 2. 拦截window.open调用
@@ -1251,8 +1251,199 @@
         // 下载链接拦截器已设置完成
       }
 
+      // 设置拖拽事件监听器
+      async function setupDragAndDrop() {
+        try {
+          const { getCurrentWebview } = window.__TAURI__.webview;
+          const webview = getCurrentWebview();
+
+          // 创建拖拽提示元素
+          const dragOverlay = document.createElement("div");
+          dragOverlay.id = "nmd-drag-overlay";
+          dragOverlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(76, 175, 80, 0.1);
+            border: 4px dashed rgba(76, 175, 80, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 999999;
+            pointer-events: none;
+            transition: all 0.2s ease;
+          `;
+          dragOverlay.innerHTML = `
+            <div style="
+              background: rgba(76, 175, 80, 0.95);
+              color: white;
+              padding: 20px 40px;
+              border-radius: 8px;
+              font-size: 18px;
+              font-weight: bold;
+              box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            ">
+              📦 拖拽压缩包到此处安装
+            </div>
+          `;
+          document.body.appendChild(dragOverlay);
+
+          const unlisten = await webview.onDragDropEvent((event) => {
+            if (event.payload.type === "over") {
+              console.log("Nyaser Maps Downloader: 用户正在拖拽文件");
+              dragOverlay.style.display = "flex";
+            } else if (event.payload.type === "drop") {
+              console.log(
+                "Nyaser Maps Downloader: 用户拖拽了文件:",
+                event.payload.paths,
+              );
+
+              dragOverlay.style.display = "none";
+
+              const paths = event.payload.paths;
+              if (paths && paths.length > 0) {
+                const filePath = paths[0];
+                handleDroppedFile(filePath);
+              }
+            } else {
+              console.log("Nyaser Maps Downloader: 文件拖拽已取消");
+              dragOverlay.style.display = "none";
+            }
+          });
+
+          console.log("Nyaser Maps Downloader: 拖拽事件监听器已设置");
+        } catch (error) {
+          console.error(
+            "Nyaser Maps Downloader: 设置拖拽事件监听器失败:",
+            error,
+          );
+        }
+      }
+
+      // 处理拖拽的文件
+      async function handleDroppedFile(filePath) {
+        try {
+          console.log("Nyaser Maps Downloader: 处理拖拽的文件:", filePath);
+
+          // 提取文件名
+          const path = filePath;
+          const fileName = path.split(/[\\/]/).pop();
+
+          // 检查文件扩展名，判断是否为压缩包
+          const validExtensions = [
+            ".7z",
+            ".zip",
+            ".rar",
+            ".tar",
+            ".gz",
+            ".bz2",
+            ".xz",
+            ".arj",
+            ".cab",
+            ".chm",
+            ".cpio",
+            ".deb",
+            ".dmg",
+            ".iso",
+            ".lzh",
+            ".lzma",
+            ".msi",
+            ".nsis",
+            ".rpm",
+            ".udf",
+            ".wim",
+            ".xar",
+            ".z",
+          ];
+
+          const isArchive = validExtensions.some((ext) =>
+            fileName.toLowerCase().endsWith(ext),
+          );
+
+          if (!isArchive) {
+            warningDisplay.textContent =
+              "错误: 不支持的文件格式，请拖拽压缩包文件";
+            warningDisplay.style.display = "block";
+            warningDisplay.style.background = "rgba(244, 67, 54, 0.9)";
+
+            setTimeout(() => {
+              warningDisplay.style.display = "none";
+              warningDisplay.style.background = "rgba(255, 152, 0, 0.9)";
+            }, 5000);
+            return;
+          }
+
+          // 监听解压开始事件
+          const extractStartUnlisten = listen("extract-start", (event) => {
+            const { filename } = event.payload || {};
+            if (filename === fileName) {
+              warningDisplay.textContent = "正在解压: " + fileName;
+              warningDisplay.style.display = "block";
+              warningDisplay.style.background = "rgba(76, 175, 80, 0.9)";
+            }
+          });
+
+          // 监听解压完成事件
+          const extractCompleteUnlisten = listen(
+            "extract-complete",
+            (event) => {
+              const { filename, success, message } = event.payload || {};
+              if (filename === fileName) {
+                if (success) {
+                  warningDisplay.textContent = "解压完成: " + fileName;
+                  warningDisplay.style.background = "rgba(76, 175, 80, 0.9)";
+
+                  setTimeout(() => {
+                    warningDisplay.style.display = "none";
+                    warningDisplay.style.background = "rgba(255, 152, 0, 0.9)";
+                  }, 3000);
+                } else {
+                  warningDisplay.textContent = "解压失败: " + message;
+                  warningDisplay.style.background = "rgba(244, 67, 54, 0.9)";
+
+                  setTimeout(() => {
+                    warningDisplay.style.display = "none";
+                    warningDisplay.style.background = "rgba(255, 152, 0, 0.9)";
+                  }, 10000);
+                }
+
+                // 取消监听器
+                extractStartUnlisten();
+                extractCompleteUnlisten();
+              }
+            },
+          );
+
+          // 调用后端解压命令
+          const result = await window.__TAURI__.core.invoke(
+            "extract_dropped_file",
+            {
+              filePath: filePath,
+            },
+          );
+
+          console.log("Nyaser Maps Downloader: 解压命令已发送:", result);
+        } catch (error) {
+          console.error("Nyaser Maps Downloader: 解压文件失败:", error);
+          const errorMsg = error.message || JSON.stringify(error);
+          warningDisplay.textContent = "错误: 解压失败 - " + errorMsg;
+          warningDisplay.style.display = "block";
+          warningDisplay.style.background = "rgba(244, 67, 54, 0.9)";
+
+          setTimeout(() => {
+            warningDisplay.style.display = "none";
+            warningDisplay.style.background = "rgba(255, 152, 0, 0.9)";
+          }, 10000);
+        }
+      }
+
       // 初始化拦截器
       setupLinkInterceptor();
+
+      // 初始化拖拽功能
+      setupDragAndDrop();
 
       // 导出公共API
       // window.NyaserMapsDownloader = {
@@ -1272,7 +1463,7 @@
         } catch (error) {
           console.error(
             "Nyaser Maps Downloader: 通知后端前端加载完成失败:",
-            error
+            error,
           );
         }
       }
