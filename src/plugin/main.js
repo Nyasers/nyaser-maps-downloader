@@ -85,6 +85,28 @@
     // 存储当前活动的下载任务
     const activeTasks = new Map();
 
+    // 创建解压队列容器
+    const extractQueueContainer = document.createElement("div");
+    extractQueueContainer.className = "nmd-extract-queue-container";
+    extractQueueContainer.style.display = "none"; // 默认隐藏
+    downloadsContainer.appendChild(extractQueueContainer);
+
+    // 创建解压队列标题
+    const extractQueueTitle = document.createElement("div");
+    extractQueueTitle.className = "nmd-extract-queue-title";
+    extractQueueContainer.appendChild(extractQueueTitle);
+
+    // 创建解压队列列表
+    const extractQueueList = document.createElement("div");
+    extractQueueList.className = "nmd-extract-queue-list";
+    extractQueueContainer.appendChild(extractQueueList);
+
+    // 创建队列为空时的提示
+    const extractQueueEmpty = document.createElement("div");
+    extractQueueEmpty.className = "nmd-extract-queue-empty";
+    extractQueueEmpty.textContent = "队列为空";
+    extractQueueList.appendChild(extractQueueEmpty);
+
     // 创建排队任务容器
     const queueContainer = document.createElement("div");
     queueContainer.className = "nmd-queue-container";
@@ -236,6 +258,11 @@
     // 刷新下载队列
     async function refreshDownloadQueue() {
       return window.__TAURI__.core.invoke("refresh_download_queue");
+    }
+
+    // 刷新解压队列
+    async function refreshExtractQueue() {
+      return window.__TAURI__.core.invoke("refresh_extract_queue");
     }
 
     // 将下载链接传递给后端处理
@@ -896,6 +923,31 @@
         updateQueueDisplay(total_tasks, waiting_tasks, active_tasks);
       });
 
+      // 监听解压队列更新事件
+      const extractQueueUpdateUnlisten = listen(
+        "extract-queue-update",
+        (event) => {
+          // 接收到解压队列更新事件
+          const { queue } = event.payload || {};
+          if (!queue) return; // 如果没有queue信息，忽略此事件
+
+          const { total_tasks, waiting_tasks, active_tasks } = queue;
+
+          // 在控制台输出队列更新信息
+          console.log(
+            "Nyaser Maps Downloader: 解压队列更新 - 总任务数:",
+            total_tasks,
+            "等待任务:",
+            waiting_tasks,
+            "活跃任务:",
+            active_tasks,
+          );
+
+          // 更新解压队列UI
+          updateExtractQueueDisplay(total_tasks, waiting_tasks, active_tasks);
+        },
+      );
+
       // 监听目录更改事件
       const dirChangedUnlisten = listen("extract-dir-changed", (event) => {
         // 接收到目录更改事件
@@ -1090,6 +1142,164 @@
         });
       }
 
+      // 更新解压队列显示的函数
+      function updateExtractQueueDisplay(totalTasks, waitingTasks, activeTask) {
+        // 清空队列列表
+        extractQueueList.innerHTML = "";
+
+        // 更新标题
+        extractQueueTitle.innerHTML = `解压队列 (${waitingTasks.length})`;
+
+        // 创建按钮容器
+        const actionsContainer = document.createElement("div");
+        actionsContainer.className = "nmd-extract-queue-actions";
+
+        // 添加刷新按钮
+        const refreshButton = document.createElement("button");
+        refreshButton.className = "nmd-extract-queue-action-button refresh";
+        refreshButton.textContent = "刷新";
+        refreshButton.title = "刷新队列状态";
+        refreshButton.addEventListener("click", async () => {
+          try {
+            console.log("Nyaser Maps Downloader: 刷新解压队列状态");
+            // 请求后端刷新队列
+            await refreshExtractQueue();
+          } catch (error) {
+            console.error("Nyaser Maps Downloader: 刷新解压队列失败:", error);
+            warningDisplay.textContent =
+              "错误: 刷新解压队列失败 - " + error.message;
+            warningDisplay.style.display = "block";
+            warningDisplay.style.background = "rgba(244, 67, 54, 0.9)";
+
+            setTimeout(() => {
+              warningDisplay.style.display = "none";
+              warningDisplay.style.background = "rgba(255, 152, 0, 0.9)";
+            }, 5000);
+          }
+        });
+        actionsContainer.appendChild(refreshButton);
+
+        // 添加全部取消按钮
+        const cancelAllButton = document.createElement("button");
+        cancelAllButton.className =
+          "nmd-extract-queue-action-button cancel-all";
+        cancelAllButton.textContent = "全部取消";
+        cancelAllButton.title = "取消所有排队任务";
+        cancelAllButton.addEventListener("click", async () => {
+          if (waitingTasks && waitingTasks.length > 0) {
+            try {
+              console.log("Nyaser Maps Downloader: 取消所有排队解压任务");
+              // 请求后端取消所有排队任务
+              await window.__TAURI__.core.invoke("cancel_all_extracts");
+            } catch (error) {
+              console.error(
+                "Nyaser Maps Downloader: 取消所有排队解压任务失败:",
+                error,
+              );
+              warningDisplay.textContent =
+                "错误: 取消所有排队解压任务失败 - " + error.message;
+              warningDisplay.style.display = "block";
+              warningDisplay.style.background = "rgba(244, 67, 54, 0.9)";
+
+              setTimeout(() => {
+                warningDisplay.style.display = "none";
+                warningDisplay.style.background = "rgba(255, 152, 0, 0.9)";
+              }, 5000);
+            }
+          }
+        });
+        actionsContainer.appendChild(cancelAllButton);
+
+        // 将按钮容器添加到标题
+        extractQueueTitle.appendChild(actionsContainer);
+
+        // 如果有等待任务，显示队列容器
+        if (waitingTasks && waitingTasks.length > 0) {
+          extractQueueContainer.style.display = "block";
+
+          // 检查是否有活跃任务
+          const hasActiveTasks = activeTask.length > 0;
+
+          // 添加每个排队任务
+          waitingTasks.forEach((task, index) => {
+            const queueTaskElement = document.createElement("div");
+            queueTaskElement.className = "nmd-extract-queue-task";
+
+            // 创建文件名元素
+            const filenameElement = document.createElement("div");
+            filenameElement.className = "nmd-extract-queue-task-filename";
+            // 使用archive_name作为显示名称
+            const displayName = task.archive_name
+              ? task.archive_name
+              : "未知压缩包";
+            filenameElement.textContent = displayName;
+
+            // 创建位置元素
+            const positionElement = document.createElement("div");
+            positionElement.className = "nmd-extract-queue-task-position";
+            // 如果有活跃任务，位置为 index + 1；否则位置为 index（因为即将开始解压）
+            const position = hasActiveTasks ? index + 1 : 0;
+            positionElement.textContent =
+              position > 0 ? `#${position}` : "即将开始";
+
+            // 组装元素
+            queueTaskElement.appendChild(filenameElement);
+            queueTaskElement.appendChild(positionElement);
+            extractQueueList.appendChild(queueTaskElement);
+
+            // 创建取消按钮
+            const cancelButton = document.createElement("button");
+            cancelButton.className = "nmd-extract-queue-task-cancel";
+            cancelButton.textContent = "取消";
+            cancelButton.title = "取消此排队任务";
+
+            // 添加取消按钮到任务元素
+            queueTaskElement.appendChild(cancelButton);
+
+            // 添加按钮点击事件，允许取消排队任务
+            cancelButton.addEventListener("click", async (e) => {
+              e.stopPropagation(); // 阻止事件冒泡
+
+              if (task.id) {
+                try {
+                  // 调用后端取消解压命令
+                  await window.__TAURI__.core.invoke("cancel_extract", {
+                    taskId: task.id,
+                  });
+                  console.log(
+                    "Nyaser Maps Downloader: 取消排队解压任务:",
+                    task.id,
+                  );
+                } catch (error) {
+                  console.error(
+                    "Nyaser Maps Downloader: 取消排队解压任务失败:",
+                    error,
+                  );
+                  warningDisplay.textContent =
+                    "错误: 取消排队解压任务失败 - " + error.message;
+                  warningDisplay.style.display = "block";
+                  warningDisplay.style.background = "rgba(244, 67, 54, 0.9)";
+
+                  setTimeout(() => {
+                    warningDisplay.style.display = "none";
+                    warningDisplay.style.background = "rgba(255, 152, 0, 0.9)";
+                  }, 5000);
+                }
+              }
+            });
+          });
+        } else {
+          // 如果没有等待任务，隐藏队列容器
+          extractQueueContainer.style.display = "none";
+
+          // 添加队列为空的提示
+          const emptyElement = document.createElement("div");
+          emptyElement.className = "nmd-extract-queue-empty";
+          emptyElement.textContent = "队列为空";
+          extractQueueList.appendChild(emptyElement);
+        }
+      }
+
       // 监听游戏目录警告事件
       const gameDirWarningUnlisten = listen("game-dir-warning", (event) => {
         // 游戏目录警告
@@ -1198,6 +1408,7 @@
         downloadFailedUnlisten,
         taskAddUnlisten,
         queueUpdateUnlisten,
+        extractQueueUpdateUnlisten,
         dirChangedUnlisten,
         gameDirWarningUnlisten,
         cancelDownloadUnlisten,

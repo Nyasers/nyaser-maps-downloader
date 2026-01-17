@@ -28,6 +28,8 @@ pub struct ExtractTask {
     pub app_handle: AppHandle,
     /// 下载任务ID，用于关联下载和解压操作
     pub download_task_id: String,
+    /// 是否为拖拽文件（拖拽文件解压后不删除）
+    pub is_dragged_file: bool,
 }
 
 // 创建全局解压队列管理器实例和7z资源路径常量
@@ -224,7 +226,7 @@ fn send_extract_start_event(task: &ExtractTask, filename: &str) {
 }
 
 // 发送解压完成事件
-fn send_extract_complete_event(task: &ExtractTask, success: bool, message: &str) {
+fn send_extract_complete_event(task: &ExtractTask, success: bool, message: &str, filename: &str) {
     let _ = task.app_handle.emit_to(
         "main",
         "extract-complete",
@@ -233,32 +235,91 @@ fn send_extract_complete_event(task: &ExtractTask, success: bool, message: &str)
                 "taskId": task.download_task_id,
                 "success": success,
                 "message": message,
-                "filename": "未知文件".to_string()
+                "filename": filename
             }
         ),
+    );
+}
+
+// 发送解压队列更新事件
+fn send_extract_queue_update_event(app_handle: &AppHandle) {
+    let (total_tasks, active_tasks, waiting_tasks) = {
+        let queue = EXTRACT_MANAGER.queue.lock().map_err(|e| {
+            log_error!("无法获取解压队列锁: {:?}", e);
+            format!("无法获取解压队列锁: {:?}", e)
+        });
+
+        match queue {
+            Ok(queue) => {
+                let active = queue
+                    .active_tasks
+                    .iter()
+                    .filter_map(|task_id| {
+                        queue.tasks.get(task_id).map(|task| {
+                            serde_json::json!({"id": task.id, "file_path": task.file_path, "archive_name": task.archive_name})
+                        })
+                    })
+                    .collect::<Vec<_>>();
+
+                let tasks = queue
+                    .waiting_tasks
+                    .iter()
+                    .filter_map(|task_id| {
+                        queue.tasks.get(task_id).map(|task| {
+                            serde_json::json!({"id": task.id, "file_path": task.file_path, "archive_name": task.archive_name})
+                        })
+                    })
+                    .collect::<Vec<_>>();
+
+                let total = active.len() + tasks.len();
+
+                (total, active, tasks)
+            }
+            Err(_) => (0, vec![], vec![]),
+        }
+    };
+
+    let _ = app_handle.emit_to(
+        "main",
+        "extract-queue-update",
+        &serde_json::json!({
+            "queue": {"waiting_tasks": waiting_tasks,
+                       "total_tasks": total_tasks,
+                       "active_tasks": active_tasks}
+        }),
     );
 }
 
 // 清理临时文件
 fn cleanup_temp_file(task: &ExtractTask, extract_task_id: &str, success: bool) {
     if success {
-        if let Err(e) = fs::remove_file(&task.file_path) {
-            log_warn!(
-                "解压任务 [{}]: 无法删除临时文件 {}: {}",
-                extract_task_id,
-                task.file_path,
-                e
-            );
-        } else {
+        // 如果是拖拽文件，不删除原文件
+        if task.is_dragged_file {
             log_debug!(
-                "解压任务 [{}]: 成功删除临时文件: {}",
+                "解压任务 [{}]: 拖拽文件解压完成，保留原文件: {}",
                 extract_task_id,
                 task.file_path
             );
+        } else {
+            // 下载的临时文件，解压后删除
+            if let Err(e) = fs::remove_file(&task.file_path) {
+                log_warn!(
+                    "解压任务 [{}]: 无法删除临时文件 {}: {}",
+                    extract_task_id,
+                    task.file_path,
+                    e
+                );
+            } else {
+                log_debug!(
+                    "解压任务 [{}]: 成功删除临时文件: {}",
+                    extract_task_id,
+                    task.file_path
+                );
+            }
         }
     } else {
         log_warn!(
-            "解压任务 [{}]: 解压失败，保留临时文件以便排查: {}",
+            "解压任务 [{}]: 解压失败，保留文件以便排查: {}",
             extract_task_id,
             task.file_path
         );
@@ -367,7 +428,8 @@ fn process_extract_task(task: ExtractTask, extract_task_id: &str, download_task_
         log_error!("解压任务 [{}] 失败: {}", extract_task_id, message);
     }
 
-    send_extract_complete_event(&task, success, &message);
+    send_extract_complete_event(&task, success, &message, &filename);
+    send_extract_queue_update_event(&task.app_handle);
 }
 
 /// 通过ID查找下载任务

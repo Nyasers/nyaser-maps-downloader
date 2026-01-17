@@ -567,6 +567,7 @@ pub async fn download_and_extract(
         archive_name: archive_name.clone(),
         app_handle: app_handle.clone(),
         download_task_id: task_id.to_string(),
+        is_dragged_file: false,
     };
 
     let extract_task_id = extract_task.id.clone();

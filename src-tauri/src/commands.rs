@@ -1232,7 +1232,11 @@ pub fn extract_dropped_file(file_path: String, app_handle: AppHandle) -> Result<
         .unwrap_or("unknown")
         .to_string();
 
-    log_info!("将拖拽文件添加到解压队列: 文件={}, 压缩包名称={}", file_path, archive_name);
+    log_info!(
+        "将拖拽文件添加到解压队列: 文件={}, 压缩包名称={}",
+        file_path,
+        archive_name
+    );
 
     // 生成唯一的任务ID
     let task_id = uuid::Uuid::new_v4().to_string();
@@ -1244,14 +1248,18 @@ pub fn extract_dropped_file(file_path: String, app_handle: AppHandle) -> Result<
         archive_name: archive_name.clone(),
         app_handle: app_handle.clone(),
         download_task_id: format!("drag-drop-{}", task_id),
+        is_dragged_file: true,
     };
 
     // 添加任务到解压队列
     {
-        let mut queue = crate::extract_manager::EXTRACT_MANAGER.queue.lock().map_err(|e| {
-            log_error!("无法获取解压队列锁: {:?}", e);
-            format!("无法获取解压队列锁: {:?}", e)
-        })?;
+        let mut queue = crate::extract_manager::EXTRACT_MANAGER
+            .queue
+            .lock()
+            .map_err(|e| {
+                log_error!("无法获取解压队列锁: {:?}", e);
+                format!("无法获取解压队列锁: {:?}", e)
+            })?;
         queue.add_task(task_id.clone(), extract_task);
         log_info!(
             "拖拽解压任务已添加到队列: ID={}, 文件={}, 当前队列长度: {}",
@@ -1261,12 +1269,62 @@ pub fn extract_dropped_file(file_path: String, app_handle: AppHandle) -> Result<
         );
     }
 
+    // 发送解压队列更新事件
+    {
+        let (total_tasks, active_tasks, waiting_tasks) = {
+            let queue = crate::extract_manager::EXTRACT_MANAGER
+                .queue
+                .lock()
+                .map_err(|e| {
+                    log_error!("无法获取解压队列锁: {:?}", e);
+                    format!("无法获取解压队列锁: {:?}", e)
+                })?;
+
+            let active = queue
+                .active_tasks
+                .iter()
+                .filter_map(|task_id| {
+                    queue.tasks.get(task_id).map(|task| {
+                        serde_json::json!({"id": task.id, "file_path": task.file_path, "archive_name": task.archive_name})
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            let tasks = queue
+                .waiting_tasks
+                .iter()
+                .filter_map(|task_id| {
+                    queue.tasks.get(task_id).map(|task| {
+                        serde_json::json!({"id": task.id, "file_path": task.file_path, "archive_name": task.archive_name})
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            let total = active.len() + tasks.len();
+
+            (total, active, tasks)
+        };
+
+        let _ = app_handle.emit_to(
+            "main",
+            "extract-queue-update",
+            &serde_json::json!({
+                "queue": {"waiting_tasks": waiting_tasks,
+                           "total_tasks": total_tasks,
+                           "active_tasks": active_tasks}
+            }),
+        );
+    }
+
     // 启动解压队列处理（如果尚未启动）
     let should_start_processing = {
-        let queue = crate::extract_manager::EXTRACT_MANAGER.queue.lock().map_err(|e| {
-            log_error!("无法获取解压队列锁: {:?}", e);
-            format!("无法获取解压队列锁: {:?}", e)
-        })?;
+        let queue = crate::extract_manager::EXTRACT_MANAGER
+            .queue
+            .lock()
+            .map_err(|e| {
+                log_error!("无法获取解压队列锁: {:?}", e);
+                format!("无法获取解压队列锁: {:?}", e)
+            })?;
         !queue.processing_started
     };
 
@@ -1276,4 +1334,178 @@ pub fn extract_dropped_file(file_path: String, app_handle: AppHandle) -> Result<
     }
 
     Ok(format!("解压任务已添加到队列，任务ID: {}", task_id))
+}
+
+/// 刷新解压队列状态 - 获取当前队列状态并向前端发送更新
+///
+/// 此函数会获取当前解压队列的状态（等待任务、总任务数和活跃任务数），
+/// 并向前端发送队列更新事件，用于刷新前端显示。
+///
+/// # 参数
+/// - `app_handle`: Tauri应用句柄，用于发送事件通知
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command(async)]
+pub async fn refresh_extract_queue(app_handle: AppHandle) -> Result<String, String> {
+    log_info!("接收到刷新解压队列请求");
+
+    // 发送队列更新事件通知
+    let (total_tasks, active_tasks, waiting_tasks) = {
+        let queue = crate::extract_manager::EXTRACT_MANAGER
+            .queue
+            .lock()
+            .map_err(|e| {
+                log_error!("无法获取解压队列锁: {:?}", e);
+                format!("无法获取解压队列锁: {:?}", e)
+            })?;
+
+        let active = queue
+            .active_tasks
+            .iter()
+            .filter_map(|task_id| {
+                queue.tasks.get(task_id).map(|task| {
+                    serde_json::json!({"id": task.id, "file_path": task.file_path, "archive_name": task.archive_name})
+                })
+            })
+            .collect::<Vec<_>>();
+
+        // 构建等待任务列表（转换为可序列化的格式）
+        let tasks = queue
+            .waiting_tasks
+            .iter()
+            .filter_map(|task_id| {
+                queue.tasks.get(task_id).map(|task| {
+                    serde_json::json!({"id": task.id, "file_path": task.file_path, "archive_name": task.archive_name})
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let total = active.len() + tasks.len();
+
+        (total, active, tasks)
+    };
+
+    let _ = app_handle.emit_to(
+        "main",
+        "extract-queue-update",
+        &serde_json::json!({
+            "queue": {"waiting_tasks": waiting_tasks,
+                       "total_tasks": total_tasks,
+                       "active_tasks": active_tasks}
+        }),
+    );
+
+    log_info!(
+        "刷新解压队列处理完成: 等待任务数={}, 活跃任务数={}, 总任务数={}",
+        waiting_tasks.len(),
+        active_tasks.len(),
+        total_tasks
+    );
+    Ok(format!(
+        "成功刷新解压队列，等待任务数: {}, 活跃任务数: {}",
+        waiting_tasks.len(),
+        active_tasks.len()
+    ))
+}
+
+/// 取消解压任务
+///
+/// 此函数用于取消指定的解压任务，如果任务正在解压中则无法取消。
+///
+/// # 参数
+/// - `task_id`: 要取消的解压任务ID
+/// - `_app_handle`: Tauri应用句柄，用于发送事件通知
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command(async)]
+pub async fn cancel_extract(task_id: &str, _app_handle: AppHandle) -> Result<String, String> {
+    log_info!("接收到取消解压任务请求: 任务ID={}", task_id);
+
+    // 检查并处理等待队列中的任务
+    let mut queue = crate::extract_manager::EXTRACT_MANAGER
+        .queue
+        .lock()
+        .map_err(|e| {
+            log_error!("无法获取解压队列锁: {:?}", e);
+            format!("无法获取解压队列锁: {:?}", e)
+        })?;
+
+    // 查找并移除队列中的任务
+    let original_len = queue.waiting_tasks.len();
+    queue.waiting_tasks.retain(|task| task != task_id);
+
+    if original_len != queue.waiting_tasks.len() {
+        log_info!("解压任务 {} 已从等待队列中移除", task_id);
+        // 从任务映射中移除
+        queue.tasks.remove(task_id);
+        Ok(format!("已成功取消解压任务: {}", task_id))
+    } else {
+        // 检查任务是否在活跃任务中
+        let task_in_active = queue.active_tasks.iter().any(|task| task == task_id);
+        if task_in_active {
+            log_warn!("解压任务 {} 正在解压中，无法取消", task_id);
+            Err(format!("任务正在解压中，无法取消: {}", task_id))
+        } else {
+            log_warn!("解压任务 {} 不存在", task_id);
+            Err(format!("任务不存在: {}", task_id))
+        }
+    }
+}
+
+/// 取消所有排队解压任务但保留当前正在解压的任务
+///
+/// # 参数
+/// - `app_handle`: Tauri应用句柄，用于发送事件通知
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command(async)]
+pub async fn cancel_all_extracts(app_handle: AppHandle) -> Result<String, String> {
+    log_info!("接收到取消所有排队解压任务请求");
+
+    let queue_tasks_count;
+
+    // 只处理等待队列，保留活跃任务
+    {
+        let mut queue = crate::extract_manager::EXTRACT_MANAGER
+            .queue
+            .lock()
+            .map_err(|e| {
+                log_error!("无法获取解压队列锁: {:?}", e);
+                format!("无法获取解压队列锁: {:?}", e)
+            })?;
+
+        // 记录等待队列中的任务数量
+        queue_tasks_count = queue.waiting_tasks.len();
+
+        // 收集所有等待任务的ID
+        let task_ids: Vec<String> = queue.waiting_tasks.iter().cloned().collect();
+
+        // 清空等待队列
+        queue.waiting_tasks.clear();
+
+        // 从任务映射中移除等待任务
+        for task_id in task_ids {
+            queue.tasks.remove(&task_id);
+        }
+
+        // 获取活跃任务数量
+        let active_tasks_count = queue.active_tasks.len();
+
+        log_info!(
+            "已清空解压队列中的等待任务: {}个任务被取消，保留{}个活跃任务",
+            queue_tasks_count,
+            active_tasks_count
+        );
+    }
+
+    // 刷新解压队列
+    refresh_extract_queue(app_handle).await?;
+
+    Ok(format!("已成功取消 {} 个排队解压任务", queue_tasks_count))
 }
