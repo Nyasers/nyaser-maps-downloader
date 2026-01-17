@@ -411,47 +411,16 @@ pub fn process_download() -> Result<(), String> {
                 .waiting_tasks
                 .iter()
                 .filter_map(|id| queue.find_task(id))
-                .filter_map(|task| {
-                    crate::utils::get_file_name(&task.url)
-                        .and_then(|filename| {
-                            let filename = filename.as_str();
-                            regex::Regex::new(r"([AB])\-(.+)\.7z")
-                                .ok()
-                                .and_then(move |regex| {
-                                    regex.captures(filename).and_then(|captures| {
-                                        let map_type = captures.get(1)?.as_str().to_string();
-                                        let map_name = captures.get(2)?.as_str().to_string();
-                                        Some((map_type, map_name))
-                                    })
-                                })
-                        })
-                        .map(move |(map_type, map_name)| {
-                            let url = format!(
-                                "https://maps.nyase.ru/d/{}/{}-{}.7z",
-                                map_type, map_type, map_name
-                            );
-                            (
-                                DownloadTask {
-                                    id: task.id.clone(),
-                                    url,
-                                    filename: task.filename.clone(),
-                                    savepath: task.savepath.clone(),
-                                    saveonly: task.saveonly,
-                                },
-                                map_type,
-                                map_name,
-                            )
-                        })
-                });
+                .collect::<Vec<_>>();
             let should_continue = show_confirm_dialog(
                 &app_handle,
                 tasklist
-                    .clone()
-                    .map(|(task, map_type, map_name)| {
+                    .iter()
+                    .map(|task| {
                         format!(
                             "[{}] {} -> {}",
                             task.saveonly.then_some("只存").unwrap_or("安装"),
-                            format!("[三方{}] {}", map_type, map_name),
+                            task.filename.as_deref().unwrap_or("未知文件"),
                             task.savepath
                                 .as_ref()
                                 .filter(|p| !p.is_empty())
@@ -465,7 +434,8 @@ pub fn process_download() -> Result<(), String> {
                 "要继续上次未完成的任务吗?",
             );
             let tasks = tasklist
-                .map(|(task, _, _)| (task.clone().id, task.clone()))
+                .into_iter()
+                .map(|task| (task.id.clone(), task.clone()))
                 .collect();
             if should_continue {
                 log_info!("用户选择继续上次未完成的下载任务");
