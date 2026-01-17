@@ -306,10 +306,27 @@ pub fn cleanup_app_resources() {
 /// 3. 临时文件被清理
 /// 但不会调用 app.exit()，允许应用正常重启
 pub fn cleanup_app_resources_for_restart() {
+    // 检查是否已经在关闭过程中，如果是则直接返回，避免循环调用
+    if is_app_shutting_down() {
+        log_info!("应用已经在关闭过程中，跳过重复的资源清理...");
+        return;
+    }
+
     log_info!("更新重启前清理应用资源...");
 
     // 设置应用关闭标志，通知其他线程
     set_app_shutting_down(true);
+
+    // 尝试获取全局应用句柄
+    if let Some(app_handle) = &*GLOBAL_APP_HANDLE.read().unwrap() {
+        log_info!("正在关闭所有窗口...");
+
+        // 关闭所有窗口
+        for (label, window) in app_handle.webview_windows() {
+            log_info!("关闭窗口: {:?}", label);
+            let _ = window.destroy();
+        }
+    }
 
     // 保存下载队列
     if let Err(e) = download_manager::save_download_queue() {
