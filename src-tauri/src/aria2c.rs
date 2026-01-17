@@ -886,7 +886,7 @@ pub fn get_rpc_manager() -> Result<(), String> {
 }
 
 /// 处理队列中的单个待处理下载任务
-fn process_pending_task(_task_id: String, task: &PendingTask) {
+fn process_pending_task(task: &PendingTask) {
     match task {
         PendingTask::Download {
             url,

@@ -115,12 +115,11 @@ impl<T> TaskQueue<T> {
 /// # 参数
 /// - `queue`: 任务队列的共享引用
 /// - `process_task_fn`: 处理单个任务的函数
-/// - `get_task_id_fn`: 获取任务ID的函数
 /// - `sleep_duration`: 检查间隔时间（毫秒）
 /// - `should_continue_fn`: 判断是否应继续处理的函数
 pub async fn process_queue<T: std::marker::Send + 'static>(
     queue: Arc<Mutex<TaskQueue<T>>>,
-    process_task_fn: impl Fn(String, &T) -> (),
+    process_task_fn: impl Fn(&T) -> (),
     sleep_duration: u64,
     should_continue_fn: impl Fn() -> bool + 'static,
 ) {
@@ -162,7 +161,12 @@ pub async fn process_queue<T: std::marker::Send + 'static>(
                 None
             };
 
-            (task_to_process, has_waiting_tasks, has_active_tasks, can_start)
+            (
+                task_to_process,
+                has_waiting_tasks,
+                has_active_tasks,
+                can_start,
+            )
         };
 
         // 如果有任务可以启动，处理该任务
@@ -172,7 +176,7 @@ pub async fn process_queue<T: std::marker::Send + 'static>(
             // 获取任务并处理（需要再次锁定，但时间很短）
             let q = queue.lock().unwrap();
             if let Some(task) = q.find_task(&task_id) {
-                process_task_fn(task_id, task);
+                process_task_fn(task);
             }
         }
 
@@ -215,7 +219,7 @@ impl<T: std::marker::Send + 'static> QueueManager<T> {
     /// 启动队列处理
     pub fn start_processing(
         &self,
-        process_task_fn: impl Fn(String, &T) -> () + Send + 'static,
+        process_task_fn: impl Fn(&T) -> () + Send + 'static,
         sleep_duration: u64,
         should_continue_fn: impl Fn() -> bool + Send + 'static,
     ) {

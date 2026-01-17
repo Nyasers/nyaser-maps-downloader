@@ -402,7 +402,7 @@ pub fn find_download_task_by_id(
 /// 此函数使用QueueManager的start_processing方法来处理解压任务，
 /// 同时保留了优先处理没有aria2文件的任务的特殊逻辑。
 pub fn start_extract_queue_manager() {
-    let process_task_fn = |_task_id: String, task: &ExtractTask| {
+    let process_task_fn = |task: &ExtractTask| {
         let extract_task_id = task.id.clone();
         let download_task_id = task.download_task_id.clone();
 

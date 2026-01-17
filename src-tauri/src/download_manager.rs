@@ -57,7 +57,7 @@ lazy_static::lazy_static! {
 /// - `app_handle`: Tauri应用句柄，用于发送事件通知
 pub async fn process_download_queue(app_handle: AppHandle) {
     // 处理单个下载任务的函数
-    let process_task_fn = move |_task_id: String, task: &DownloadTask| {
+    let process_task_fn = move |task: &DownloadTask| {
         let task_id = task.id.clone();
         let filename = task.filename.clone().unwrap_or("未知文件".to_string());
         let url = task.url.clone();
