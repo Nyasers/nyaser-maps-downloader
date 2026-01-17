@@ -4,6 +4,11 @@ const {
   event: { listen },
 } = window.__TAURI__;
 
+
+function naturalSortCompare(a, b) {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
+
 // 加载文件列表
 async function loadFileList(clear = false) {
   try {
@@ -29,7 +34,7 @@ async function loadFileList(clear = false) {
         document.getElementById("fileItemTemplate").innerHTML;
 
       // 渲染所有分组
-      groups.forEach((group) => {
+      groups.sort((a, b) => naturalSortCompare(a.name, b.name)).forEach((group) => {
         const groupName = group.name;
         const files = group.files;
         const groupMounted = group.mounted || false;
@@ -68,7 +73,7 @@ async function loadFileList(clear = false) {
 
             // 渲染分组内的每个文件
             let filesHtml = "";
-            files.forEach((file) => {
+            files.sort((a, b) => naturalSortCompare(a.name, b.name)).forEach((file) => {
               const isMounted = file.mounted || false;
               const fileHtml = fileItemTemplate
                 .replace(/\{\{groupKey\}\}/g, groupKey)
@@ -128,7 +133,7 @@ async function loadFileList(clear = false) {
             if (groupFilesElement) {
               groupFilesElement.innerHTML = "";
 
-              files.forEach((file) => {
+              files.sort((a, b) => naturalSortCompare(a.name, b.name)).forEach((file) => {
                 const isMounted = file.mounted || false;
                 const fileHtml = fileItemTemplate
                   .replace(/\{\{groupKey\}\}/g, groupKey)
