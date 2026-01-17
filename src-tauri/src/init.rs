@@ -101,9 +101,7 @@ use crate::{
     config_manager::get_data_dir,
     dialog_manager::{show_blocking_dialog, show_dialog},
     dir_manager::{get_l4d2_addons_dir, set_global_addons_dir},
-    download_manager,
-    extract_manager::initialize_7z_resources,
-    log_error, log_info, log_warn,
+    download_manager, log_error, log_info, log_warn,
 };
 
 /// 将窗口在屏幕上居中
@@ -216,40 +214,16 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    {
-        let mut guard = crate::dir_manager::DIR_MANAGER.lock().unwrap();
-        *guard = Some(dir_manager);
-    } // 锁在这里释放
+    // 设置全局目录管理器
+    *crate::dir_manager::DIR_MANAGER.lock().unwrap() = Some(dir_manager);
 
-    // 只有配置了 nmd_data 目录才初始化 aria2c 后端和 7z 资源
-    if nmd_data_dir.is_some() {
-        // 初始化aria2c后端
-        match initialize_aria2c_backend() {
-            Err(e) => {
-                eprintln!("初始化aria2c后端失败: {}", e);
-                // 显示初始化失败对话框
-                show_dialog(
-                    &app.handle(),
-                    &format!("初始化aria2c下载引擎失败: {}", e),
-                    MessageDialogKind::Error,
-                    "初始化失败",
-                );
-            }
-            Ok(()) => {
-                // 尝试加载之前保存的下载队列
-                if let Err(e) = download_manager::load_download_queue() {
-                    eprintln!("加载下载队列失败: {}", e);
-                    log_warn!("加载下载队列失败: {}", e);
-                }
-            }
-        }
+    // 初始化aria2c后端
+    let _ = initialize_aria2c_backend();
 
-        // 初始化7z资源（与aria2c一样，在应用启动时释放）
-        log_info!("开始初始化 7z 资源...");
-        initialize_7z_resources();
-        log_info!("7z 资源初始化完成");
-    } else {
-        log_info!("未配置 nmd_data 目录，跳过 aria2c 和 7z 资源初始化");
+    // 尝试加载之前保存的下载队列
+    if let Err(e) = download_manager::load_download_queue() {
+        eprintln!("加载下载队列失败: {}", e);
+        log_warn!("加载下载队列失败: {}", e);
     }
 
     // 尝试自动获取 Left 4 Dead 2 的addons目录

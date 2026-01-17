@@ -3,7 +3,7 @@
 // 标准库导入
 use std::{
     collections::{HashMap, HashSet},
-    env, fs,
+    fs,
     io::Read,
     net::TcpListener,
     os::windows::process::CommandExt,
@@ -63,6 +63,9 @@ lazy_static! {
 
     // 用于存储取消下载请求的任务ID及其原因
     pub static ref CANCEL_DOWNLOAD_REQUESTS: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+
+    /// aria2c.exe路径常量
+    pub static ref ARIA2C_PATH: PathBuf = crate::get_assets_path("bin/aria2c.exe").expect("无法获取aria2c.exe路径");
 }
 
 // 下载状态结构体
@@ -440,13 +443,10 @@ fn find_available_port() -> Result<u16, String> {
 // 启动aria2c RPC服务器
 fn start_aria2c_rpc_server(port: u16, secret: &str) -> Result<Child, String> {
     log_info!("启动aria2c RPC服务器，端口: {}", port);
-
-    // 获取aria2c可执行文件路径
-    let aria2c_path = get_aria2c_path();
-    log_debug!("aria2c路径: {:?}", aria2c_path);
+    log_debug!("aria2c路径: {}", ARIA2C_PATH.display());
 
     // 构建命令行参数
-    let mut command = Command::new(aria2c_path);
+    let mut command = Command::new(ARIA2C_PATH.as_path());
     command
         .arg("--enable-rpc")
         .arg(format!("--rpc-listen-port={}", port))
@@ -1121,31 +1121,6 @@ pub fn cleanup_aria2c_resources() {
     }
 
     log_info!("aria2c资源清理完成");
-}
-
-/// 获取aria2c可执行文件的路径
-///
-/// 该函数按以下优先级查找aria2c可执行文件:
-/// 1. 首先从Assets中获取aria2c.exe路径
-/// 2. 如果Assets中不存在，尝试使用相对路径bin/aria2c.exe
-/// 3. 作为最后的回退，仅使用程序名"aria2c"（依赖PATH环境变量）
-pub fn get_aria2c_path() -> PathBuf {
-    match crate::get_assets_path("bin/aria2c.exe") {
-        Ok(path) => path,
-        Err(_) => {
-            // 如果Assets中不存在，尝试使用相对路径
-            let mut path = env::current_dir().unwrap_or(PathBuf::from("."));
-            path.push("bin");
-            path.push("aria2c.exe");
-
-            // 如果相对路径不存在，则回退到只使用程序名（依赖PATH环境变量）
-            if !path.exists() {
-                return PathBuf::from("aria2c");
-            }
-
-            path
-        }
-    }
 }
 
 /// 导入已存在的.aria2文件继续下载

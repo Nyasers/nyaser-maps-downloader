@@ -144,31 +144,10 @@ pub fn write_config(
                         }
 
                         // 更新全局目录管理器
-                        {
-                            let mut guard = crate::dir_manager::DIR_MANAGER.lock().unwrap();
-                            *guard = Some(dir_manager);
-                        }
+                        *crate::dir_manager::DIR_MANAGER.lock().unwrap() = Some(dir_manager);
 
                         // 初始化aria2c后端
-                        if let Err(e) = crate::aria2c::initialize_aria2c_backend() {
-                            crate::log_error!("初始化aria2c后端失败: {}", e);
-                            let error_msg = format!(
-                                "初始化aria2c后端失败: {}\n\n请检查aria2c配置是否正确。",
-                                e
-                            );
-                            show_blocking_dialog(
-                                &app_handle,
-                                &error_msg,
-                                "初始化失败",
-                                MessageDialogKind::Error,
-                            );
-                            panic!("{}", error_msg);
-                        }
-
-                        // 初始化7z资源
-                        crate::log_info!("开始初始化 7z 资源...");
-                        crate::extract_manager::initialize_7z_resources();
-                        crate::log_info!("7z 资源初始化完成");
+                        let _ = crate::aria2c::initialize_aria2c_backend();
                     }
                 } else {
                     let error_msg = "未配置数据目录，无法初始化资源";

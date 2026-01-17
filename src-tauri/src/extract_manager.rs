@@ -32,9 +32,15 @@ pub struct ExtractTask {
     pub archive_name: String,
 }
 
-// 创建全局解压队列管理器实例
+// 创建全局解压队列管理器实例和7z资源路径常量
 lazy_static::lazy_static! {
     pub static ref EXTRACT_MANAGER: QueueManager<ExtractTask> = QueueManager::new(1);
+
+    /// 7zG.exe（GUI版本）路径常量
+    pub static ref SEVENZG_PATH: PathBuf = crate::get_assets_path("bin/7zG.exe").expect("无法获取7zG.exe路径");
+
+    /// 7z.exe（命令行版本）路径常量
+    pub static ref SEVENZ_PATH: PathBuf = crate::get_assets_path("bin/7z.exe").expect("无法获取7z.exe路径");
 }
 
 // 从路径获取文件名
@@ -435,31 +441,6 @@ pub fn start_extract_queue_manager() {
     EXTRACT_MANAGER.start_processing(process_task_fn, 1000, should_continue_fn);
 }
 
-/// 从Assets中获取7zG.exe路径
-///
-/// 这是一个内部辅助函数，应用启动时调用一次，也可以在需要时重新调用
-pub fn release_7z_resources() -> Result<PathBuf, String> {
-    crate::get_assets_path("bin/7zG.exe")
-}
-
-/// 从Assets中获取7z.exe路径（命令行版本）
-///
-/// 用于执行7z命令行操作，如列出文件内容（l命令）
-pub fn get_7z_exe_path() -> Result<PathBuf, String> {
-    crate::get_assets_path("bin/7z.exe")
-}
-
-/// 初始化7z资源 - 在应用启动时调用
-pub fn initialize_7z_resources() {
-    log_info!("应用启动时初始化7z资源...");
-
-    if let Err(e) = release_7z_resources() {
-        log_error!("初始化7z资源失败: {}", e);
-    } else {
-        log_info!("7z资源初始化成功");
-    }
-}
-
 /// 使用7zG.exe解压文件 - 将压缩文件解压到指定目录
 ///
 /// 此函数通过调用7zG.exe GUI工具执行文件解压操作，并记录解压过程。
@@ -515,10 +496,6 @@ pub fn extract_with_7zip(
 
     // 使用7z.exe命令行版本验证文件是否是有效的压缩文件
     log_debug!("使用7z l命令验证压缩文件格式: {}", file_path);
-    let sevenz_exe_path = get_7z_exe_path()?;
-    let sevenz_exe_str = sevenz_exe_path
-        .to_str()
-        .ok_or("无法将7z.exe路径转换为字符串".to_string())?;
 
     let list_args = [
         "l",         // 列出命令
@@ -526,9 +503,13 @@ pub fn extract_with_7zip(
         file_path,   // 要检查的文件
     ];
 
-    log_debug!("执行验证命令: {} {}", sevenz_exe_str, list_args.join(" "));
+    log_debug!(
+        "执行验证命令: {} {}",
+        SEVENZ_PATH.display(),
+        list_args.join(" ")
+    );
 
-    let mut list_command = std::process::Command::new(sevenz_exe_str);
+    let mut list_command = std::process::Command::new(SEVENZ_PATH.as_path());
     list_command.args(&list_args);
     list_command.stdout(std::process::Stdio::piped());
     list_command.stderr(std::process::Stdio::piped());
@@ -581,13 +562,6 @@ pub fn extract_with_7zip(
         return Err(format!("创建目标解压目录失败: {}", e));
     }
 
-    // 从嵌入式资源获取7zG.exe（GUI版本）用于解压
-    log_debug!("获取7zG.exe用于解压操作...");
-    let sevenzg_exe_path = release_7z_resources()?;
-    let sevenzg_exe_str = sevenzg_exe_path
-        .to_str()
-        .ok_or("无法将7zG.exe路径转换为字符串".to_string())?;
-
     /*
     构建7zG.exe命令行参数
         使用x命令解压
@@ -601,10 +575,14 @@ pub fn extract_with_7zip(
         file_path,   // 要解压的文件
     ];
 
-    log_debug!("执行解压命令: {} {}", sevenzg_exe_str, args.join(" "));
+    log_debug!(
+        "执行解压命令: {} {}",
+        SEVENZG_PATH.display(),
+        args.join(" ")
+    );
 
     // 执行7zG.exe命令
-    let mut command = std::process::Command::new(sevenzg_exe_str);
+    let mut command = std::process::Command::new(SEVENZG_PATH.as_path());
     command.args(&args);
 
     // 设置工作目录为目标目录，这样7z会直接解压到这里
