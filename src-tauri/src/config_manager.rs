@@ -145,9 +145,6 @@ pub fn write_config(
 
                         // 更新全局目录管理器
                         *crate::dir_manager::DIR_MANAGER.lock().unwrap() = Some(dir_manager);
-
-                        // 初始化aria2c后端
-                        let _ = crate::aria2c::initialize_aria2c_backend();
                     }
                 } else {
                     let error_msg = "未配置数据目录，无法初始化资源";

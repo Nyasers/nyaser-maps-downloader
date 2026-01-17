@@ -97,7 +97,7 @@ pub fn set_app_shutting_down(shutting_down: bool) {
 
 // 内部模块导入
 use crate::{
-    aria2c::{cleanup_aria2c_resources, initialize_aria2c_backend},
+    aria2c::cleanup_aria2c_resources,
     config_manager::get_data_dir,
     dialog_manager::{show_blocking_dialog, show_dialog},
     dir_manager::{get_l4d2_addons_dir, set_global_addons_dir},
@@ -216,9 +216,6 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
 
     // 设置全局目录管理器
     *crate::dir_manager::DIR_MANAGER.lock().unwrap() = Some(dir_manager);
-
-    // 初始化aria2c后端
-    let _ = initialize_aria2c_backend();
 
     // 尝试加载之前保存的下载队列
     if let Err(e) = download_manager::load_download_queue() {
