@@ -483,7 +483,7 @@ pub async fn install(
     log_info!("接收到下载请求: URL={}, Path={}", url, savepath);
 
     // 检查并初始化目录管理器（仅在需要时锁定）
-    let extract_dir = {
+    {
         log_debug!("检查目录管理器状态...");
         let mut manager = DIR_MANAGER.lock().map_err(|e| {
             let app_handle_clone = app_handle.clone();
@@ -534,14 +534,7 @@ pub async fn install(
             })?);
             log_info!("目录管理器初始化成功");
         }
-
-        // 获取解压目录路径 - 使用 nmd_data/maps
-        log_debug!("获取解压目录...");
-        let maps_dir = manager.as_ref().unwrap().maps_dir();
-        let extract_dir = maps_dir.to_string_lossy().to_string();
-        log_info!("解压目录设置为: {}", extract_dir);
-        extract_dir
-    };
+    }
 
     // 生成唯一的任务ID
     let task_id = Uuid::new_v4().to_string();
@@ -566,7 +559,6 @@ pub async fn install(
         url: url.to_string(),
         savepath: Some(savepath.to_string()),
         saveonly: saveonly,
-        extract_dir: extract_dir,
         filename: Some(filename.clone()),
     };
     log_info!("创建下载任务: ID={}, URL={}", task_id, url);

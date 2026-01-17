@@ -22,14 +22,10 @@ pub struct ExtractTask {
     pub id: String,
     /// 要解压的文件路径
     pub file_path: String,
-    /// 解压目标目录
-    pub extract_dir: String,
     /// 应用句柄，用于发送事件通知
     pub app_handle: AppHandle,
     /// 下载任务ID，用于关联下载和解压操作
     pub download_task_id: String,
-    /// 压缩包名称（不含扩展名），用于创建子文件夹
-    pub archive_name: String,
 }
 
 // 创建全局解压队列管理器实例和7z资源路径常量
@@ -198,6 +194,17 @@ fn wait_for_aria2_file(
 
 // 发送解压开始事件
 fn send_extract_start_event(task: &ExtractTask, filename: &str) {
+    let extract_dir = match crate::dir_manager::DIR_MANAGER.lock() {
+        Ok(manager) => {
+            if let Some(ref dir_manager) = *manager {
+                dir_manager.maps_dir().to_string_lossy().to_string()
+            } else {
+                "未知".to_string()
+            }
+        }
+        Err(_) => "未知".to_string(),
+    };
+
     let _ = task.app_handle.emit_to(
         "main",
         "extract-start",
@@ -205,7 +212,7 @@ fn send_extract_start_event(task: &ExtractTask, filename: &str) {
             {
                 "taskId": task.download_task_id,
                 "filename": filename,
-                "extractDir": task.extract_dir
+                "extractDir": extract_dir
             }
         ),
     );
@@ -279,12 +286,7 @@ fn retry_extract(
             extract_task_id,
             retry_count
         );
-        final_result = extract_with_7zip(
-            &task.file_path,
-            &task.extract_dir,
-            &task.archive_name,
-            &task.download_task_id,
-        );
+        final_result = extract_with_7zip(&task.file_path);
     }
 
     final_result
@@ -334,12 +336,7 @@ fn process_extract_task(task: ExtractTask, extract_task_id: &str, download_task_
         task.file_path
     );
 
-    let result = extract_with_7zip(
-        &task.file_path,
-        &task.extract_dir,
-        &task.archive_name,
-        &task.download_task_id,
-    );
+    let result = extract_with_7zip(&task.file_path);
 
     let final_result = retry_extract(&task, extract_task_id, result);
 
@@ -407,11 +404,10 @@ pub fn start_extract_queue_manager() {
         let download_task_id = task.download_task_id.clone();
 
         log_info!(
-            "开始处理解压任务 [{}] 关联下载任务 [{}]: 文件={}, 解压目录={}",
+            "开始处理解压任务 [{}] 关联下载任务 [{}]: 文件={}",
             extract_task_id,
             download_task_id,
-            task.file_path,
-            task.extract_dir
+            task.file_path
         );
 
         let task = task.clone();
@@ -449,46 +445,48 @@ pub fn start_extract_queue_manager() {
 ///
 /// # 参数
 /// - `file_path`: 要解压的文件路径
-/// - `extract_dir`: 解压目标目录
-/// - `archive_name`: 压缩包名称（不含扩展名），用于创建子文件夹
-/// - `task_id`: 任务ID，用于标识当前解压任务
 ///
 /// # 返回值
 /// - 成功时返回包含解压成功信息的Ok
 /// - 失败时返回包含错误信息的Err
-pub fn extract_with_7zip(
-    file_path: &str,
-    extract_dir: &str,
-    archive_name: &str,
-    task_id: &str,
-) -> Result<String, String> {
+pub fn extract_with_7zip(file_path: &str) -> Result<String, String> {
+    // 从文件路径中提取压缩包名称（不含扩展名）
+    let archive_name = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|os_str| os_str.to_str())
+        .and_then(|filename| {
+            std::path::Path::new(filename)
+                .file_stem()
+                .and_then(|os_str| os_str.to_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
     log_debug!(
-        "开始解压操作: 文件={}, 目标目录={}, 子文件夹={}",
+        "开始解压操作: 文件={}, 子文件夹={}",
         file_path,
-        extract_dir,
         archive_name
     );
 
     // 验证压缩包
     validate_archieve(file_path)?;
 
-    // extract_dir 已经是 maps 目录（例如 E:\NMD_Data\maps），直接使用
-    let maps_dir = PathBuf::from(extract_dir);
-
-    // 确保 maps 目录存在
-    if !maps_dir.exists() {
-        log_debug!("maps目录不存在，尝试创建: {}", maps_dir.display());
-        if let Err(e) = std::fs::create_dir_all(&maps_dir) {
-            log_error!("创建maps目录失败: {}", e);
-            return Err(format!("创建maps目录失败: {}", e));
+    // 从全局 DIR_MANAGER 获取 maps 目录
+    let maps_dir = match crate::dir_manager::DIR_MANAGER.lock() {
+        Ok(manager) => {
+            if let Some(ref dir_manager) = *manager {
+                dir_manager.maps_dir()
+            } else {
+                return Err("目录管理器未初始化".to_string());
+            }
         }
-        log_info!("maps目录创建成功: {}", maps_dir.display());
-    } else {
-        log_debug!("maps目录已存在: {}", maps_dir.display());
-    }
+        Err(e) => {
+            return Err(format!("无法获取目录管理器锁: {}", e));
+        }
+    };
 
     // 创建以压缩包名称命名的子文件夹
-    let target_dir = maps_dir.join(archive_name);
+    let target_dir = maps_dir.join(&archive_name);
     log_debug!("创建目标解压目录: {}", target_dir.display());
 
     // 如果目标目录已存在，先删除
@@ -537,11 +535,13 @@ pub fn extract_with_7zip(
         .spawn()
         .map_err(|e| format!("无法启动7zG.exe进程: {}", e))?;
 
+    let pid = child.id();
+
     // 获取stdout和stderr流并进行日志记录
     let stdout = child.stdout.take().ok_or("无法获取stdout流")?;
     let stderr = child.stderr.take().ok_or("无法获取stderr流")?;
 
-    redirect_process_output(stdout, stderr, format!("7zG[{}]", task_id));
+    redirect_process_output(stdout, stderr, format!("7zG[{}]", pid));
 
     // 等待进程结束并获取退出状态
     let output = child

@@ -21,7 +21,6 @@ use crate::{
     init::is_app_shutting_down,
     log_debug, log_error, log_info, log_warn,
     queue_manager::{process_queue, TaskQueue},
-    utils::get_file_name,
 };
 
 /// 下载任务结构体 - 表示一个地图下载任务的基本信息
@@ -31,8 +30,6 @@ pub struct DownloadTask {
     pub id: String,
     /// 要下载的文件URL
     pub url: String,
-    /// 文件解压目标目录
-    pub extract_dir: String,
     /// 文件名（可选，如未指定则从URL中提取）
     pub filename: Option<String>,
     /// 下载文件保存路径（可选，如未指定则不保存）
@@ -86,7 +83,6 @@ pub async fn process_download_queue(app_handle: AppHandle) {
         tauri::async_runtime::spawn(async move {
             let result = download_and_extract(
                 &task_clone.url,
-                &task_clone.extract_dir,
                 savepath.as_deref(),
                 saveonly,
                 app_clone.clone(),
@@ -437,7 +433,6 @@ pub fn process_download() -> Result<(), String> {
                                 DownloadTask {
                                     id: task.id.clone(),
                                     url,
-                                    extract_dir: task.extract_dir.clone(),
                                     filename: task.filename.clone(),
                                     savepath: task.savepath.clone(),
                                     saveonly: task.saveonly,
@@ -494,7 +489,6 @@ pub fn process_download() -> Result<(), String> {
 ///
 /// # 参数
 /// - `url`: 要下载的文件URL
-/// - `extract_dir`: 解压目标目录
 /// - `app_handle`: Tauri应用句柄，用于发送下载进度事件
 /// - `task_id`: 下载任务的唯一标识符
 ///
@@ -503,7 +497,6 @@ pub fn process_download() -> Result<(), String> {
 /// - 失败时返回包含错误信息的Err
 pub async fn download_and_extract(
     url: &str,
-    extract_dir: &str,
     savepath: Option<&str>,
     saveonly: bool,
     app_handle: AppHandle,
@@ -557,32 +550,19 @@ pub async fn download_and_extract(
     }
 
     // 创建解压任务并添加到解压队列
-    // 从URL中提取文件名，然后提取压缩包名称（不含扩展名）
-    let archive_name = get_file_name(url)
-        .and_then(|filename| {
-            std::path::Path::new(&filename)
-                .file_stem()
-                .and_then(|os_str| os_str.to_str())
-                .map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| "unknown".to_string());
-
     let extract_task = ExtractTask {
         id: uuid::Uuid::new_v4().to_string(),
         file_path: file_path.clone(),
-        extract_dir: extract_dir.to_string(),
         app_handle: app_handle.clone(),
         download_task_id: task_id.to_string(),
-        archive_name,
     };
 
     let extract_task_id = extract_task.id.clone();
     log_info!(
-        "创建解压任务 [{}] 关联下载任务 [{}]: 文件={}, 解压目录={}",
+        "创建解压任务 [{}] 关联下载任务 [{}]: 文件={}",
         extract_task_id,
         task_id,
-        file_path,
-        extract_dir
+        file_path
     );
 
     // 创建解压队列处理的独立引用
