@@ -37,6 +37,9 @@ lazy_static::lazy_static! {
 
     /// 7z.exe（命令行版本）路径常量
     pub static ref SEVENZ_PATH: PathBuf = crate::get_assets_path("bin/7z.exe").expect("无法获取7z.exe路径");
+
+    /// maps 路径常量
+    pub static ref MAPS_DIR: PathBuf = crate::dir_manager::DIR_MANAGER.lock().unwrap().as_ref().unwrap().maps_dir().to_path_buf();
 }
 
 // 从路径获取文件名
@@ -471,22 +474,8 @@ pub fn extract_with_7zip(file_path: &str) -> Result<String, String> {
     // 验证压缩包
     validate_archieve(file_path)?;
 
-    // 从全局 DIR_MANAGER 获取 maps 目录
-    let maps_dir = match crate::dir_manager::DIR_MANAGER.lock() {
-        Ok(manager) => {
-            if let Some(ref dir_manager) = *manager {
-                dir_manager.maps_dir()
-            } else {
-                return Err("目录管理器未初始化".to_string());
-            }
-        }
-        Err(e) => {
-            return Err(format!("无法获取目录管理器锁: {}", e));
-        }
-    };
-
     // 创建以压缩包名称命名的子文件夹
-    let target_dir = maps_dir.join(&archive_name);
+    let target_dir = MAPS_DIR.as_path().join(&archive_name);
     log_debug!("创建目标解压目录: {}", target_dir.display());
 
     // 如果目标目录已存在，先删除
@@ -502,12 +491,7 @@ pub fn extract_with_7zip(file_path: &str) -> Result<String, String> {
         log_error!("创建目标解压目录失败: {}", e);
         return Err(format!("创建目标解压目录失败: {}", e));
     }
-    /*
-    构建7zG.exe命令行参数
-        使用x命令解压
-        -y表示自动确认所有提示
-        -sccUTF-8设置控制台代码页
-    */
+
     let args = [
         "x",         // 解压命令
         "-y",        // 自动确认
