@@ -1,74 +1,96 @@
-// Nyaser Maps Downloader - Server List Button Click Logic
+const getAssets = (asset) =>
+  decodeURIComponent(window.__TAURI__.core.convertFileSrc(asset, "asset"));
 
-// 查找指定按钮的函数
-function findAndClickButton() {
-  const button = document.querySelector(
-    "#app-container > div > section > main > div > form > div > div > button"
-  );
-  if (button) {
-    console.log("Nyaser Maps Downloader: 找到指定按钮，触发点击事件");
-    // 创建并触发点击事件
-    const event = new MouseEvent("click", {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-    });
-    button.dispatchEvent(event);
-    return true;
+async function loadServerList() {
+  try {
+    const listUrl = getAssets("serverlist/list.json");
+    const response = await fetch(listUrl);
+    const servers = await response.json();
+    return servers;
+  } catch (error) {
+    console.error("加载服务器列表失败:", error);
+    return [];
   }
-  return false;
 }
 
-function main() {
-  // 先尝试直接查找并点击按钮
-  if (findAndClickButton()) {
-    console.log("Nyaser Maps Downloader: 按钮点击成功完成");
+function renderServerList(servers) {
+  const serverList = document.getElementById("serverList");
+  const template = document.getElementById("serverItemTemplate");
+
+  if (servers.length === 0) {
+    serverList.innerHTML = '<p class="loading">暂无服务器</p>';
     return;
   }
 
-  console.log("Nyaser Maps Downloader: 未找到指定按钮，添加DOM加载完成监听");
+  serverList.innerHTML = "";
 
-  // 如果按钮不存在，添加DOMContentLoaded事件监听
-  if (document.readyState === "loading") {
-    // 文档仍在加载中，监听DOMContentLoaded事件
-    document.addEventListener("DOMContentLoaded", function () {
-      console.log("Nyaser Maps Downloader: DOMContentLoaded事件触发");
-      if (!findAndClickButton()) {
-        console.log(
-          "Nyaser Maps Downloader: DOMContentLoaded后仍未找到按钮，添加1秒延迟后重试"
-        );
-        setTimeout(findAndClickButton, 1000);
-      }
-    });
-  } else {
-    // 文档已加载完成但按钮仍不存在，可能是动态生成的，添加MutationObserver
-    console.log(
-      "Nyaser Maps Downloader: 文档已加载但按钮不存在，添加MutationObserver监听DOM变化"
-    );
-    const observer = new MutationObserver(function (mutations) {
-      if (findAndClickButton()) {
-        console.log(
-          "Nyaser Maps Downloader: 按钮通过MutationObserver找到并点击"
-        );
-        observer.disconnect();
-      }
+  servers.forEach((server) => {
+    const clone = template.content.cloneNode(true);
+    const serverItem = clone.querySelector(".server-item");
+
+    serverItem.setAttribute("data-url", server.url);
+    serverItem.querySelector(".server-icon").textContent = server.icon || "🌐";
+    serverItem.querySelector(".server-name").textContent = server.name;
+    serverItem.querySelector(".server-url").textContent = server.url;
+
+    const openBtn = serverItem.querySelector(".open-btn");
+    openBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openServerWindow(server.url, server.name, server.icon);
     });
 
-    // 配置观察选项
-    const config = {
-      childList: true,
-      subtree: true,
-    };
+    serverItem.addEventListener("click", () => {
+      openServerWindow(server.url, server.name, server.icon);
+    });
 
-    // 开始观察文档体
-    observer.observe(document.body, config);
+    serverList.appendChild(clone);
+  });
+}
 
-    // 5秒后如果还没找到，停止观察
-    setTimeout(function () {
-      observer.disconnect();
-      console.log("Nyaser Maps Downloader: 观察超时，停止监听DOM变化");
-    }, 5000);
+async function openServerWindow(url, name, icon) {
+  try {
+    const {
+      core: { invoke },
+      webviewWindow: { WebviewWindow, getCurrentWebviewWindow },
+    } = window.__TAURI__;
+
+    const windowLabel = `server_${new URL(url).hostname.replaceAll(".", "_")}`;
+
+    const parentWindow = await getCurrentWebviewWindow();
+
+    const webview = new WebviewWindow(windowLabel, {
+      url: url,
+      title: `${name} ${icon || ""}`,
+      width: 1024,
+      height: 768,
+      parent: "serverlist",
+      minimizable: false,
+      center: true,
+    });
+
+    webview.once("tauri://created", function () {
+      console.log("窗口创建成功");
+      parentWindow?.hide();
+    });
+
+    webview.once("tauri://error", function (e) {
+      console.error("创建窗口失败:", e);
+      alert(`创建窗口失败: ${e.payload}`);
+    });
+
+    webview.once("tauri://destroyed", function () {
+      console.log("窗口销毁成功");
+      invoke("open_serverlist_window");
+    });
+  } catch (error) {
+    console.error("打开窗口失败:", error);
+    alert(`打开窗口失败: ${error}`);
   }
+}
+
+async function main() {
+  const servers = await loadServerList();
+  renderServerList(servers);
 }
 
 main();

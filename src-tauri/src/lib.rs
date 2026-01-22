@@ -287,8 +287,8 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("asset", asset_protocol_handler)
         .invoke_handler(tauri::generate_handler![
             commands::install,
-            commands::open_file_manager_window,
-            commands::open_server_list_window,
+            commands::open_filemanager_window,
+            commands::open_serverlist_window,
             commands::get_maps,
             commands::delete_map_file,
             commands::delete_group,
@@ -321,6 +321,9 @@ pub fn run() {
                     // main窗口关闭时：隐藏窗口并清理资源
                     window.hide().unwrap();
                     init::cleanup_app_resources();
+                } else if window.label().starts_with("server_") {
+                    // 服务器窗口关闭时：允许正常关闭
+                    log_info!("服务器窗口 {} 已关闭", window.label());
                 } else {
                     // 其他子窗口关闭时：只隐藏窗口，不清理资源
                     window.hide().unwrap();

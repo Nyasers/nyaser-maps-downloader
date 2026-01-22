@@ -12,10 +12,11 @@
         "width": 1024,
         "height": 768,
         "url": "https://maps.nyase.ru",
-        "visible": false
+        "visible": false,
+        "center": true
       },
       {
-        "label": "file_manager",
+        "label": "filemanager",
         "title": "Nyaser Maps Downloader - 文件管理器",
         "width": 800,
         "height": 600,
@@ -24,12 +25,14 @@
         "parent": "main"
       },
       {
-        "label": "server_list",
-        "title": "Left 4 Dead 2 🍋",
+        "label": "serverlist",
+        "title": "服务器列表",
         "width": 800,
         "height": 600,
-        "url": "https://l4d2server.com",
+        "url": "http://asset.localhost/serverlist/main.html",
         "visible": false,
+        "minimizable": false,
+        "maximizable": false,
         "parent": "main"
       }
     ],
@@ -38,15 +41,13 @@
         "enable": true,
         "scope": []
       },
-      "csp": "default-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://maps.nyase.ru 'unsafe-inline' 'unsafe-eval'"
+      "csp": "default-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost 'unsafe-inline' 'unsafe-eval'"
     }
   },
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": [
-      "nsis"
-    ],
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -60,26 +61,19 @@
         "type": "downloadBootstrapper"
       }
     },
-    "resources": [
-      "assets/",
-      "bin/"
-    ]
+    "resources": ["assets/", "bin/"]
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYwODYyMjI3REIwNkE2MjkKUldRcHBnYmJKeUtHOEV6M01HMzQ3REZuYXZVMi9RM0JrNlo5UFR2SG1mTU1mTTBJQU84Wko2akMK",
-      "endpoints": [
-        "https://tup.nyase.ru/?Nyasers/nyaser-maps-downloader"
-      ],
+      "endpoints": ["https://tup.nyase.ru/?Nyasers/nyaser-maps-downloader"],
       "windows": {
         "installMode": "passive"
       }
     },
     "deep-link": {
       "desktop": {
-        "schemes": [
-          "nmd"
-        ]
+        "schemes": ["nmd"]
       }
     }
   }

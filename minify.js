@@ -64,6 +64,9 @@ const jsFiles = getAllFilesByExtension(srcDir, [".js"]);
 // 获取所有CSS文件
 const cssFiles = getAllFilesByExtension(srcDir, [".css"]);
 
+// 获取所有JSON文件
+const jsonFiles = getAllFilesByExtension(srcDir, [".json"]);
+
 // 生成压缩后的文件路径
 function generateOutputPath(inputPath) {
   // 计算相对于src目录的路径
@@ -120,7 +123,7 @@ async function minifyFiles() {
   try {
     console.log(`🚀 资源压缩工具启动...`);
     console.log(
-      `🚀 发现 ${htmlFiles.length} 个HTML文件、${jsFiles.length} 个JavaScript文件和 ${cssFiles.length} 个CSS文件需要压缩...`
+      `🚀 发现 ${htmlFiles.length} 个HTML文件、${jsFiles.length} 个JavaScript文件、${cssFiles.length} 个CSS文件和 ${jsonFiles.length} 个JSON文件需要压缩...`,
     );
 
     // 总统计信息
@@ -141,7 +144,7 @@ async function minifyFiles() {
           minifiedContent = await minifyHTML(originalContent, options);
         } catch (error) {
           console.error(
-            `⚠️  高级压缩失败，尝试降级压缩: ${path.basename(file)}`
+            `⚠️  高级压缩失败，尝试降级压缩: ${path.basename(file)}`,
           );
           // 降级压缩配置
           const fallbackOptions = { ...options };
@@ -183,7 +186,7 @@ async function minifyFiles() {
         console.log(`   📦 原始大小: ${formatFileSize(originalSize)}`);
         console.log(`   📦 压缩大小: ${formatFileSize(minifiedSize)}`);
         console.log(
-          `   💾 节省空间: ${formatFileSize(savedSize)} (${compressionRatio}%)`
+          `   💾 节省空间: ${formatFileSize(savedSize)} (${compressionRatio}%)`,
         );
         console.log(`   🎯 输出到: ${relativeOutputPath}`);
       } catch (error) {
@@ -242,7 +245,7 @@ async function minifyFiles() {
         console.log(`   📦 原始大小: ${formatFileSize(originalSize)}`);
         console.log(`   📦 压缩大小: ${formatFileSize(minifiedSize)}`);
         console.log(
-          `   💾 节省空间: ${formatFileSize(savedSize)} (${compressionRatio}%)`
+          `   💾 节省空间: ${formatFileSize(savedSize)} (${compressionRatio}%)`,
         );
         console.log(`   🎯 输出到: ${relativeOutputPath}`);
       } catch (error) {
@@ -303,7 +306,66 @@ async function minifyFiles() {
         console.log(`   📦 原始大小: ${formatFileSize(originalSize)}`);
         console.log(`   📦 压缩大小: ${formatFileSize(minifiedSize)}`);
         console.log(
-          `   💾 节省空间: ${formatFileSize(savedSize)} (${compressionRatio}%)`
+          `   💾 节省空间: ${formatFileSize(savedSize)} (${compressionRatio}%)`,
+        );
+        console.log(`   🎯 输出到: ${relativeOutputPath}`);
+      } catch (error) {
+        const relativeFilePath = path.relative(srcDir, file);
+        console.error(`❌ 压缩文件失败: ${relativeFilePath}`, error.message);
+        results.push({ file, success: false, error: error.message });
+      }
+    }
+
+    // 压缩JSON文件
+    for (const file of jsonFiles) {
+      try {
+        const originalContent = readFileSafely(file);
+        const originalSize = getFileSize(originalContent);
+
+        // 压缩JSON文件
+        let minifiedContent;
+        try {
+          const parsedJson = JSON.parse(originalContent);
+          minifiedContent = JSON.stringify(parsedJson);
+        } catch (error) {
+          console.error(`⚠️  JSON压缩失败: ${error.stack}`);
+          minifiedContent = originalContent;
+        }
+
+        const minifiedSize = getFileSize(minifiedContent);
+        const compressionRatio = (
+          (1 - minifiedSize / originalSize) *
+          100
+        ).toFixed(2);
+        const savedSize = originalSize - minifiedSize;
+
+        // 更新总统计
+        totalOriginalSize += originalSize;
+        totalMinifiedSize += minifiedSize;
+        totalSavedSize += savedSize;
+
+        // 保存压缩文件
+        const outputPath = generateOutputPath(file);
+        writeFileSafely(outputPath, minifiedContent);
+
+        results.push({
+          file,
+          success: true,
+          originalSize,
+          minifiedSize,
+          savedSize,
+          compressionRatio,
+          outputPath,
+        });
+
+        // 打印单个文件的压缩结果，显示相对路径
+        const relativeFilePath = path.relative(srcDir, file);
+        const relativeOutputPath = path.relative(assetsPath, outputPath);
+        console.log(`✅ 已压缩: ${relativeFilePath}`);
+        console.log(`   📦 原始大小: ${formatFileSize(originalSize)}`);
+        console.log(`   📦 压缩大小: ${formatFileSize(minifiedSize)}`);
+        console.log(
+          `   💾 节省空间: ${formatFileSize(savedSize)} (${compressionRatio}%)`,
         );
         console.log(`   🎯 输出到: ${relativeOutputPath}`);
       } catch (error) {

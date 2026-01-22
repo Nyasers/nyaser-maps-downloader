@@ -78,17 +78,17 @@ fn center_window_relative_to_main(
 /// - 成功时返回包含成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 #[tauri::command]
-pub fn open_file_manager_window(app_handle: AppHandle) -> Result<String, String> {
+pub fn open_filemanager_window(app_handle: AppHandle) -> Result<String, String> {
     log_info!("接收到打开文件管理器窗口请求");
 
-    match app_handle.get_webview_window("file_manager") {
+    match app_handle.get_webview_window("filemanager") {
         Some(window) => {
             show_window(&window, "文件管理器")?;
             focus_window(&window, "文件管理器");
             reset_window_state(&window, "文件管理器");
             center_window_relative_to_main(&window, &app_handle, "文件管理器");
 
-            if let Some(window) = app_handle.get_webview_window("file_manager") {
+            if let Some(window) = app_handle.get_webview_window("filemanager") {
                 let _ = window.reload();
             }
 
@@ -300,10 +300,10 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
 /// - 成功时返回包含成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 #[tauri::command]
-pub fn open_server_list_window(app_handle: AppHandle) -> Result<String, String> {
+pub fn open_serverlist_window(app_handle: AppHandle) -> Result<String, String> {
     log_info!("接收到打开服务器列表窗口请求");
 
-    match app_handle.get_webview_window("server_list") {
+    match app_handle.get_webview_window("serverlist") {
         Some(window) => {
             show_window(&window, "服务器列表")?;
             focus_window(&window, "服务器列表");

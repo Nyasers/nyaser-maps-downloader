@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>服务器列表 - Nyaser Maps Downloader</title>
+    <script>
+      (async function () {
+        const getAssets = (asset) =>
+          decodeURIComponent(
+            window.__TAURI__.core.convertFileSrc(asset, "asset"),
+          );
+        document.head.appendChild(
+          Object.assign(document.createElement("link"), {
+            rel: "stylesheet",
+            href: getAssets("serverlist/main.css"),
+          }),
+        );
+        return getAssets("serverlist/main.js");
+      })()
+        .then((u) => fetch(u))
+        .then((r) => r.text())
+        .then((c) => new Function(c))
+        .then((f) => f());
+    </script>
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>服务器列表</h1>
+      <div class="server-list" id="serverList">
+        <p class="loading">正在加载服务器列表...</p>
+      </div>
+    </div>
+
+    <template id="serverItemTemplate">
+      <div class="server-item" data-url="{{url}}">
+        <div class="server-icon">{{icon}}</div>
+        <div class="server-info">
+          <div class="server-name">{{name}}</div>
+          <div class="server-url">{{url}}</div>
+        </div>
+        <div class="server-action">
+          <button class="open-btn">打开</button>
+        </div>
+      </div>
+    </template>
+  </body>
+</html>
