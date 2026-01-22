@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -8,13 +8,13 @@
       (async function () {
         const getAssets = (asset) =>
           decodeURIComponent(
-            window.__TAURI__.core.convertFileSrc(asset, "asset")
+            window.__TAURI__.core.convertFileSrc(asset, "asset"),
           );
         document.head.appendChild(
           Object.assign(document.createElement("link"), {
             rel: "stylesheet",
             href: getAssets("filemanager/main.css"),
-          })
+          }),
         );
         return getAssets("filemanager/main.js");
       })()
@@ -27,7 +27,7 @@
 
   <body>
     <div class="container">
-      <h1>Nyaser Maps Downloader - 文件管理器</h1>
+      <h1>文件管理器</h1>
       <div class="data-dir-config">
         <div class="data-dir-info">
           <label for="dataDir">数据存储目录：</label>
