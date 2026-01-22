@@ -22,7 +22,6 @@ h1 {
 }
 
 .container {
-  max-width: 1000px;
   margin: 0 auto;
   background: rgba(255, 255, 255, 0.95);
   border-radius: 12px;
@@ -41,6 +40,10 @@ h1 {
   padding: 15px 10px;
   border-bottom: 1px solid #eee;
   transition: all 0.3s ease;
+}
+
+.file-item > *:not(.file-name) {
+  flex-shrink: 0;
 }
 
 .file-item:hover {
@@ -182,6 +185,10 @@ h1 {
   flex-grow: 1;
   font-weight: 500;
   font-size: 14px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .group-stats {
@@ -198,14 +205,8 @@ h1 {
 }
 
 /* 确保统计信息和删除按钮之间有足够的空间 */
-.group-header > div {
+.group-header > div:not(.group-info) {
   flex-shrink: 0;
-}
-
-/* 让组名占据剩余空间 */
-.group-info {
-  flex-grow: 1;
-  min-width: 0;
 }
 
 .group-content {
@@ -256,6 +257,7 @@ h1 {
 /* 挂载状态指示器 */
 .file-mount-status {
   margin-right: 10px;
+  flex-shrink: 0;
 }
 
 .mount-indicator {
@@ -395,12 +397,18 @@ h1 {
 
 .file-name {
   flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .file-size {
   margin: 0 10px;
   color: #666;
   font-size: 14px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .delete-btn {
