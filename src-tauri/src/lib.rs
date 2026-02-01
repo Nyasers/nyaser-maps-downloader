@@ -304,6 +304,7 @@ pub fn run() {
             commands::unmount_file,
             commands::mount_group,
             commands::unmount_group,
+            commands::cleanup_invalid_links,
             commands::extract_dropped_file,
             commands::refresh_extract_queue,
             commands::cancel_extract,

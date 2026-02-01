@@ -199,7 +199,7 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
                                                         } else {
                                                             continue;
                                                         }
-                                                        if let Some(file_name) = 
+                                                        if let Some(file_name) =
                                                             file_path.file_name()
                                                         {
                                                             let file_name_str = file_name
@@ -1220,6 +1220,110 @@ pub fn unmount_group(group_name: String) -> Result<String, String> {
         error_count
     );
     Ok(format!("组卸载完成: 成功卸载 {} 个文件", unmounted_count))
+}
+
+/// 清理无效链接
+///
+/// 检测并清理addons目录中指向非vpk文件的符号链接
+///
+/// # 返回值
+/// - 成功时返回包含清理结果的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command]
+pub fn cleanup_invalid_links() -> Result<String, String> {
+    log_info!("接收到清理无效链接请求");
+
+    // 获取 addons_dir
+    let addons_dir = match DIR_MANAGER.lock() {
+        Ok(manager) => {
+            if manager.is_none() {
+                return Err("目录管理器未初始化".to_string());
+            }
+            manager
+                .as_ref()
+                .unwrap()
+                .addons_dir()
+                .ok_or_else(|| {
+                    log_error!("无法获取 addons_dir");
+                    "无法获取 addons_dir".to_string()
+                })?
+                .to_path_buf()
+        }
+        Err(e) => {
+            log_error!("无法锁定目录管理器: {:?}", e);
+            return Err(format!("无法锁定目录管理器: {:?}", e));
+        }
+    };
+
+    let addons_dir_str = addons_dir.to_string_lossy().to_string();
+
+    // 扫描addons目录中的符号链接
+    let symlinks = crate::symlink_manager::get_all_file_symlinks_in_dir(&addons_dir_str)?;
+
+    let mut cleanup_count = 0;
+    let mut error_count = 0;
+
+    // 检查每个符号链接的目标文件
+    for symlink in symlinks {
+        let target_path = std::path::Path::new(&symlink.target_path);
+
+        // 检查目标文件是否存在
+        if !target_path.exists() {
+            // 目标文件不存在，视为无效链接
+            log_info!("清理无效链接（目标文件不存在）: {}", symlink.path);
+            match crate::symlink_manager::delete_file_symlink(&symlink.path) {
+                Ok(_) => cleanup_count += 1,
+                Err(e) => {
+                    log_warn!("删除无效链接失败: {:?}", e);
+                    error_count += 1;
+                }
+            }
+            continue;
+        }
+
+        // 检查目标文件是否为vpk文件
+        if let Some(ext) = target_path.extension() {
+            if ext != "vpk" {
+                // 目标文件不是vpk文件，视为无效链接
+                log_info!(
+                    "清理无效链接（非vpk文件）: {} -> {}",
+                    symlink.path,
+                    symlink.target_path
+                );
+                match crate::symlink_manager::delete_file_symlink(&symlink.path) {
+                    Ok(_) => cleanup_count += 1,
+                    Err(e) => {
+                        log_warn!("删除无效链接失败: {:?}", e);
+                        error_count += 1;
+                    }
+                }
+            }
+        } else {
+            // 目标文件没有扩展名，视为无效链接
+            log_info!(
+                "清理无效链接（无扩展名）: {} -> {}",
+                symlink.path,
+                symlink.target_path
+            );
+            match crate::symlink_manager::delete_file_symlink(&symlink.path) {
+                Ok(_) => cleanup_count += 1,
+                Err(e) => {
+                    log_warn!("删除无效链接失败: {:?}", e);
+                    error_count += 1;
+                }
+            }
+        }
+    }
+
+    // 构建清理结果消息
+    let result_message = format!(
+        "清理无效链接完成: 成功清理 {} 个，失败 {} 个",
+        cleanup_count, error_count
+    );
+
+    log_info!("{}", result_message);
+
+    Ok(result_message)
 }
 
 /// 解压拖拽的压缩包文件

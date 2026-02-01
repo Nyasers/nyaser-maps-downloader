@@ -280,6 +280,17 @@ pub fn initialize_app(app: &App) -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // 清理无效链接
+    log_info!("开始清理无效链接...");
+    match crate::commands::cleanup_invalid_links() {
+        Ok(msg) => {
+            log_info!("清理无效链接完成: {}", msg);
+        }
+        Err(e) => {
+            log_warn!("清理无效链接失败: {:?}", e);
+        }
+    }
+
     log_info!("应用初始化完成");
     Ok(())
 }

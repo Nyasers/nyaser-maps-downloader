@@ -696,3 +696,24 @@ h1 {
   transform: none;
   box-shadow: none;
 }
+
+/* 清理无效链接按钮 */
+.cleanup-invalid-links-btn {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.cleanup-invalid-links-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(79, 172, 254, 0.4);
+}
+
+.cleanup-invalid-links-btn:active {
+  transform: scale(0.98);
+}
