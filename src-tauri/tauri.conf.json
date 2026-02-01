@@ -18,8 +18,8 @@
       {
         "label": "filemanager",
         "title": "Nyaser Maps Downloader - 文件管理器",
-        "width": 800,
-        "height": 600,
+        "width": 1024,
+        "height": 768,
         "url": "http://asset.localhost/filemanager/main.html",
         "visible": false,
         "minimizable": false,
@@ -27,9 +27,9 @@
       },
       {
         "label": "serverlist",
-        "title": "服务器列表",
-        "width": 800,
-        "height": 600,
+        "title": "Nyaser Maps Downloader - 服务器列表",
+        "width": 1024,
+        "height": 768,
         "url": "http://asset.localhost/serverlist/main.html",
         "visible": false,
         "minimizable": false,
@@ -47,9 +47,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": [
-      "nsis"
-    ],
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -63,26 +61,19 @@
         "type": "downloadBootstrapper"
       }
     },
-    "resources": [
-      "assets/",
-      "bin/"
-    ]
+    "resources": ["assets/", "bin/"]
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYwODYyMjI3REIwNkE2MjkKUldRcHBnYmJKeUtHOEV6M01HMzQ3REZuYXZVMi9RM0JrNlo5UFR2SG1mTU1mTTBJQU84Wko2akMK",
-      "endpoints": [
-        "https://tup.nyase.ru/?Nyasers/nyaser-maps-downloader"
-      ],
+      "endpoints": ["https://tup.nyase.ru/?Nyasers/nyaser-maps-downloader"],
       "windows": {
         "installMode": "passive"
       }
     },
     "deep-link": {
       "desktop": {
-        "schemes": [
-          "nmd"
-        ]
+        "schemes": ["nmd"]
       }
     }
   }
