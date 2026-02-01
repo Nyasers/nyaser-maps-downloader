@@ -191,7 +191,15 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
                                                 Ok(file_entry) => {
                                                     let file_path = file_entry.path();
                                                     if file_path.is_file() {
-                                                        if let Some(file_name) =
+                                                        // 只处理vpk文件
+                                                        if let Some(ext) = file_path.extension() {
+                                                            if ext != "vpk" {
+                                                                continue;
+                                                            }
+                                                        } else {
+                                                            continue;
+                                                        }
+                                                        if let Some(file_name) = 
                                                             file_path.file_name()
                                                         {
                                                             let file_name_str = file_name
@@ -889,6 +897,15 @@ pub fn mount_file(group_name: String, file_name: String) -> Result<String, Strin
         return Err(format!("源文件不存在: {}", source_path.display()));
     }
 
+    // 检查是否为vpk文件
+    if let Some(ext) = source_path.extension() {
+        if ext != "vpk" {
+            return Err(format!("只能挂载vpk文件: {}", file_name));
+        }
+    } else {
+        return Err(format!("只能挂载vpk文件: {}", file_name));
+    }
+
     // 获取 addons_dir
     let addons_dir = match DIR_MANAGER.lock() {
         Ok(manager) => {
@@ -1048,6 +1065,15 @@ pub fn mount_group(group_name: String) -> Result<String, String> {
         let file_path = entry.path();
 
         if !file_path.is_file() {
+            continue;
+        }
+
+        // 只处理vpk文件
+        if let Some(ext) = file_path.extension() {
+            if ext != "vpk" {
+                continue;
+            }
+        } else {
             continue;
         }
 
