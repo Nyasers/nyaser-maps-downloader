@@ -45,25 +45,41 @@ fn reset_window_state(window: &tauri::WebviewWindow, window_name: &str) {
     }
 }
 
-// 相对主窗口居中
-fn center_window_relative_to_main(
+// 继承主窗口位置和大小
+fn inherit_window_position_and_size_from_main(
     window: &tauri::WebviewWindow,
     app_handle: &AppHandle,
     window_name: &str,
 ) {
     if let Some(main_window) = app_handle.get_webview_window("main") {
-        if let (Ok(main_pos), Ok(main_size), Ok(child_size)) = (
-            main_window.inner_position(),
+        if let (Ok(main_pos), Ok(main_size), Ok(is_maximized)) = (
+            main_window.outer_position(),
             main_window.inner_size(),
-            window.inner_size(),
+            main_window.is_maximized(),
         ) {
-            let x = main_pos.x + ((main_size.width as i32 - child_size.width as i32) / 2);
-            let y = main_pos.y + ((main_size.height as i32 - child_size.height as i32) / 2);
-
+            // 继承主窗口位置
             if let Err(e) =
-                window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+                window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                    x: main_pos.x,
+                    y: main_pos.y,
+                }))
             {
-                log_error!("设置{}窗口居中位置失败: {:?}", window_name, e);
+                log_error!("设置{}窗口位置失败: {:?}", window_name, e);
+            }
+
+            // 继承主窗口大小
+            if let Err(e) = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                width: main_size.width,
+                height: main_size.height,
+            })) {
+                log_error!("设置{}窗口大小失败: {:?}", window_name, e);
+            }
+
+            // 继承主窗口最大化状态
+            if is_maximized {
+                if let Err(e) = window.maximize() {
+                    log_error!("设置{}窗口最大化状态失败: {:?}", window_name, e);
+                }
             }
         }
     }
@@ -86,7 +102,7 @@ pub fn open_filemanager_window(app_handle: AppHandle) -> Result<String, String> 
             show_window(&window, "文件管理器")?;
             focus_window(&window, "文件管理器");
             reset_window_state(&window, "文件管理器");
-            center_window_relative_to_main(&window, &app_handle, "文件管理器");
+            inherit_window_position_and_size_from_main(&window, &app_handle, "文件管理器");
 
             if let Some(window) = app_handle.get_webview_window("filemanager") {
                 let _ = window.reload();
@@ -316,7 +332,7 @@ pub fn open_serverlist_window(app_handle: AppHandle) -> Result<String, String> {
             show_window(&window, "服务器列表")?;
             focus_window(&window, "服务器列表");
             reset_window_state(&window, "服务器列表");
-            center_window_relative_to_main(&window, &app_handle, "服务器列表");
+            inherit_window_position_and_size_from_main(&window, &app_handle, "服务器列表");
 
             std::thread::spawn(move || {
                 let js_code = match crate::get_assets_path("assets/serverlist/main.js") {

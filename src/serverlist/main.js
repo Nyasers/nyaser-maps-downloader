@@ -58,15 +58,32 @@ async function openServerWindow(url, name, icon) {
 
     const parentWindow = await getCurrentWebviewWindow();
 
-    const webview = new WebviewWindow(windowLabel, {
+    // 获取父窗口的位置和大小
+    let windowOptions = {
       url: url,
       title: `${name} ${icon || ""}`,
       width: 1024,
       height: 768,
       parent: "serverlist",
       minimizable: false,
-      center: true,
-    });
+    };
+
+    try {
+      const position = await parentWindow.outerPosition();
+      const size = await parentWindow.innerSize();
+      const maximized = await parentWindow.isMaximized();
+      Object.assign(windowOptions, {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+        maximized: maximized,
+      });
+    } catch (err) {
+      console.warn("获取窗口信息失败:", err);
+    }
+
+    const webview = new WebviewWindow(windowLabel, windowOptions);
 
     webview.once("tauri://created", function () {
       console.log("窗口创建成功");
