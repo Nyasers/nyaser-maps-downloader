@@ -2316,7 +2316,7 @@ dependencies = [
 
 [[package]]
 name = "nyaser-maps-downloader"
-version = "2.7.8"
+version = "2.7.9"
 dependencies = [
  "chrono",
  "lazy_static",
