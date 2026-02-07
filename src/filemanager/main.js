@@ -23,9 +23,27 @@ async function loadFileList(clear = false) {
     if (clear)
       fileListElement.innerHTML = `<p class="no-files">正在加载...</p>`;
 
+    /** @type {Array<{name: string, files: Array, mounted: boolean}>} */
     const groups = await invoke("get_maps");
 
+    // 分类逻辑：根据分组名称规则对地图进行分类
     if (groups && groups.length > 0) {
+      // 为每个分组添加分类信息，并去掉相应的前缀
+      groups.forEach((group) => {
+        let groupName = group.name;
+        // 去掉相应的前缀
+        if (groupName.startsWith("【Map】")) {
+          group.category = "kitasoda";
+          group.cleanName = groupName.replace("【Map】", "").trim();
+        } else if (groupName.startsWith("A-") || groupName.startsWith("B-")) {
+          group.category = "ssdraid0";
+          group.cleanName = groupName.replace(/^(A-|B-)/, "").trim();
+        } else {
+          group.category = "unsorted";
+          group.cleanName = groupName.trim();
+        }
+      });
+
       // 获取模板
       const groupItemTemplate =
         document.getElementById("groupItemTemplate").innerHTML;
@@ -34,7 +52,25 @@ async function loadFileList(clear = false) {
 
       // 渲染所有分组
       groups
-        .sort((a, b) => naturalSortCompare(a.name, b.name))
+        .sort((a, b) => {
+          // 定义分类的优先级
+          const categoryPriority = {
+            kitasoda: 0,
+            ssdraid0: 1,
+            unsorted: 2,
+          };
+
+          // 先按分类优先级排序
+          const priorityA = categoryPriority[a.category] || 2;
+          const priorityB = categoryPriority[b.category] || 2;
+
+          if (priorityA !== priorityB) {
+            return priorityA - priorityB;
+          }
+
+          // 分类相同则按清理后的名称排序
+          return naturalSortCompare(a.cleanName, b.cleanName);
+        })
         .forEach((group) => {
           const groupName = group.name;
           const files = group.files;
@@ -58,9 +94,13 @@ async function loadFileList(clear = false) {
               // 分组不存在，创建新的
               let groupHtml = groupItemTemplate
                 .replace(/\{\{groupKey\}\}/g, groupKey)
-                .replace(/\{\{displayGroupName\}\}/g, groupName)
+                .replace(
+                  /\{\{displayGroupName\}\}/g,
+                  group.cleanName || groupName,
+                )
                 .replace(/\{\{fileCount\}\}/g, files.length)
                 .replace(/\{\{totalSize\}\}/g, formatFileSize(totalSize))
+                .replace(/\{\{category\}\}/g, group.category || "unsorted")
                 .replace(/\{\{groupId\}\}/g, groupId)
                 .replace(/\{\{groupMounted\}\}/g, groupMounted)
                 .replace(

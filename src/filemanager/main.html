@@ -82,7 +82,10 @@
             </label>
             <span class="group-toggle">▶</span>
           </div>
-          <div class="group-info">{{displayGroupName}}</div>
+          <div class="group-info">
+            <span class="category-indicator">{{category}}</span> ·
+            {{displayGroupName}}
+          </div>
           <div class="group-stats">{{fileCount}} 个文件 · {{totalSize}}</div>
           <div class="group-actions">
             <button

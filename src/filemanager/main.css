@@ -411,6 +411,23 @@ h1 {
   white-space: nowrap;
 }
 
+/* 分类相关样式 */
+.file-category {
+  margin: 0 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.category-indicator {
+  font-size: 12px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-weight: 500;
+  background-color: #e3f2fd;
+  color: #1976d2;
+  border: 1px solid #bbdefb;
+}
+
 .delete-btn {
   background: linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%);
   color: white;
