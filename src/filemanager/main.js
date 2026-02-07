@@ -8,6 +8,12 @@ function naturalSortCompare(a, b) {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
 
+// 筛选状态变量
+let currentFilters = {
+  category: "all",
+  mountStatus: "all",
+};
+
 // 加载文件列表
 async function loadFileList(clear = false) {
   try {
@@ -44,6 +50,30 @@ async function loadFileList(clear = false) {
         }
       });
 
+      // 根据筛选条件过滤分组
+      const filteredGroups = groups.filter((group) => {
+        // 分类筛选
+        if (
+          currentFilters.category !== "all" &&
+          group.category !== currentFilters.category
+        ) {
+          return false;
+        }
+
+        // 挂载状态筛选
+        if (currentFilters.mountStatus !== "all") {
+          const isMounted = group.mounted || false;
+          if (currentFilters.mountStatus === "mounted" && !isMounted) {
+            return false;
+          }
+          if (currentFilters.mountStatus === "unmounted" && isMounted) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+
       // 获取模板
       const groupItemTemplate =
         document.getElementById("groupItemTemplate").innerHTML;
@@ -51,7 +81,7 @@ async function loadFileList(clear = false) {
         document.getElementById("fileItemTemplate").innerHTML;
 
       // 渲染所有分组
-      groups
+      filteredGroups
         .sort((a, b) => {
           // 定义分类的优先级
           const categoryPriority = {
@@ -210,7 +240,7 @@ async function loadFileList(clear = false) {
         ),
       );
       const newGroupIds = new Set(
-        groups
+        filteredGroups
           .filter((g) => g.files.length > 0)
           .map(
             (g) =>
@@ -253,10 +283,6 @@ async function loadFileList(clear = false) {
       fileListElement.querySelector(".no-files")?.remove();
       // 显示全选和批量删除按钮
       document.getElementById("selectAllBtn").style.display = "inline-block";
-      document.getElementById("selectMountedBtn").style.display =
-        "inline-block";
-      document.getElementById("selectUnmountedBtn").style.display =
-        "inline-block";
       document.getElementById("batchDeleteBtn").style.display = "inline-block";
       document.getElementById("batchMountBtn").style.display = "inline-block";
       document.getElementById("batchUnmountBtn").style.display = "inline-block";
@@ -264,8 +290,6 @@ async function loadFileList(clear = false) {
       fileListElement.innerHTML = '<p class="no-files">没有找到文件</p>';
       // 隐藏全选和批量删除按钮
       document.getElementById("selectAllBtn").style.display = "none";
-      document.getElementById("selectMountedBtn").style.display = "none";
-      document.getElementById("selectUnmountedBtn").style.display = "none";
       document.getElementById("batchDeleteBtn").style.display = "none";
       document.getElementById("batchMountBtn").style.display = "none";
       document.getElementById("batchUnmountBtn").style.display = "none";
@@ -276,52 +300,18 @@ async function loadFileList(clear = false) {
       `<p class="no-files" style="color: red;">加载文件列表失败: ${error.message}</p>`;
     // 隐藏全选和批量删除按钮
     document.getElementById("selectAllBtn").style.display = "none";
-    document.getElementById("selectMountedBtn").style.display = "none";
-    document.getElementById("selectUnmountedBtn").style.display = "none";
     document.getElementById("batchDeleteBtn").style.display = "none";
     document.getElementById("batchMountBtn").style.display = "none";
     document.getElementById("batchUnmountBtn").style.display = "none";
   }
 }
 
-// 选中已挂载的分组
-function selectMountedGroups() {
-  const groupCheckboxes = document.querySelectorAll(".group-checkbox");
-  const groupHeaders = document.querySelectorAll(".group-header");
-
-  groupCheckboxes.forEach((checkbox) => {
-    const groupName = checkbox.getAttribute("data-group");
-    const groupHeader = document.querySelector(
-      `.group-header[data-group="${groupName}"]`,
-    );
-    const mountBtn = groupHeader?.querySelector(".group-mount-btn");
-    const isMounted = mountBtn?.getAttribute("data-mounted") === "true";
-
-    checkbox.checked = isMounted;
-    updateGroupCheckboxState(groupName);
-  });
-
-  updateSelection();
-}
-
-// 选中未挂载的分组
-function selectUnmountedGroups() {
-  const groupCheckboxes = document.querySelectorAll(".group-checkbox");
-  const groupHeaders = document.querySelectorAll(".group-header");
-
-  groupCheckboxes.forEach((checkbox) => {
-    const groupName = checkbox.getAttribute("data-group");
-    const groupHeader = document.querySelector(
-      `.group-header[data-group="${groupName}"]`,
-    );
-    const mountBtn = groupHeader?.querySelector(".group-mount-btn");
-    const isMounted = mountBtn?.getAttribute("data-mounted") === "true";
-
-    checkbox.checked = !isMounted;
-    updateGroupCheckboxState(groupName);
-  });
-
-  updateSelection();
+// 应用筛选
+function applyFilters() {
+  currentFilters.category = document.getElementById("categoryFilter").value;
+  currentFilters.mountStatus =
+    document.getElementById("mountStatusFilter").value;
+  loadFileList();
 }
 
 // 批量挂载选中的分组
@@ -861,15 +851,15 @@ async function changeDataDir() {
     .getElementById("selectAllBtn")
     .addEventListener("click", toggleSelectAll);
 
-  // 选中已挂载按钮事件
+  // 分类筛选事件
   document
-    .getElementById("selectMountedBtn")
-    .addEventListener("click", selectMountedGroups);
+    .getElementById("categoryFilter")
+    .addEventListener("change", applyFilters);
 
-  // 选中未挂载按钮事件
+  // 挂载状态筛选事件
   document
-    .getElementById("selectUnmountedBtn")
-    .addEventListener("click", selectUnmountedGroups);
+    .getElementById("mountStatusFilter")
+    .addEventListener("change", applyFilters);
 
   // 批量挂载按钮事件
   document
