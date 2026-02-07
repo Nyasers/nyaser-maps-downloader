@@ -12,6 +12,7 @@ function naturalSortCompare(a, b) {
 let currentFilters = {
   category: "all",
   mountStatus: "all",
+  search: "",
 };
 
 // 加载文件列表
@@ -67,6 +68,14 @@ async function loadFileList(clear = false) {
             return false;
           }
           if (currentFilters.mountStatus === "unmounted" && isMounted) {
+            return false;
+          }
+        }
+
+        // 搜索筛选
+        if (currentFilters.search) {
+          const groupName = (group.cleanName || group.name).toLowerCase();
+          if (!groupName.includes(currentFilters.search)) {
             return false;
           }
         }
@@ -311,6 +320,10 @@ function applyFilters() {
   currentFilters.category = document.getElementById("categoryFilter").value;
   currentFilters.mountStatus =
     document.getElementById("mountStatusFilter").value;
+  currentFilters.search = document
+    .getElementById("searchBox")
+    .value.trim()
+    .toLowerCase();
   loadFileList();
 }
 
@@ -860,6 +873,9 @@ async function changeDataDir() {
   document
     .getElementById("mountStatusFilter")
     .addEventListener("change", applyFilters);
+
+  // 搜索框事件
+  document.getElementById("searchBox").addEventListener("input", applyFilters);
 
   // 批量挂载按钮事件
   document

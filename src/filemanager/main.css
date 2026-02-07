@@ -604,6 +604,11 @@ h1 {
   border-radius: 6px;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
+}
+
+.filter-group:first-child {
+  flex-grow: 1;
 }
 
 .filter-group {
@@ -634,6 +639,27 @@ h1 {
 }
 
 .filter-group select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.filter-group input {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: white;
+  transition: all 0.3s ease;
+  width: 100%;
+}
+
+.filter-group input:hover {
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+.filter-group input:focus {
   outline: none;
   border-color: #667eea;
   box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
