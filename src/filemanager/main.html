@@ -12,16 +12,14 @@
           );
         document.head.appendChild(
           Object.assign(document.createElement("link"), {
-            rel: "stylesheet",
             href: getAssets("filemanager/main.css"),
+            rel: "stylesheet",
           }),
         );
-        return getAssets("filemanager/main.js");
-      })()
-        .then((u) => fetch(u))
-        .then((r) => r.text())
-        .then((c) => new Function(c))
-        .then((f) => f());
+        return ["lib/fuse.min.js", "filemanager/main.js"].map((e) =>
+          getAssets(e),
+        );
+      })().then((m) => m.map((e) => import(e)));
     </script>
   </head>
 

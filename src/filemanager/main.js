@@ -15,8 +15,81 @@ let currentFilters = {
   search: "",
 };
 
-// 加载文件列表
-async function loadFileList(clear = false) {
+/**
+ * 对 DOM 中的分组元素进行排序
+ * @param {HTMLElement} container - 包含分组元素的容器
+ * @description 根据存储在 data-* 属性中的排序数据对 DOM 元素进行排序
+ */
+function sortGroupElements(container) {
+  // 获取所有分组元素
+  const groupElements = Array.from(container.querySelectorAll(".group-item"));
+
+  // 对元素进行排序
+  groupElements.sort((a, b) => {
+    // 获取排序数据
+    const scoreA = parseFloat(a.dataset.searchScore);
+    const scoreB = parseFloat(b.dataset.searchScore);
+
+    // 检查是否有搜索分数（只有在搜索时才会有分数）
+    const hasScoreA = !isNaN(scoreA);
+    const hasScoreB = !isNaN(scoreB);
+
+    // 如果两个都有搜索分数，则按分数排序
+    if (hasScoreA && hasScoreB) {
+      return scoreA - scoreB;
+    }
+
+    const typeA = a.dataset.category || "unsorted";
+    const typeB = b.dataset.category || "unsorted";
+
+    if (typeA !== typeB) {
+      return typeA.localeCompare(typeB);
+    }
+
+    // 分类相同则按清理后的名称排序
+    return naturalSortCompare(a.dataset.cleanName, b.dataset.cleanName);
+  });
+
+  // 重新排列 DOM 元素
+  groupElements.forEach((element) => {
+    container.appendChild(element);
+  });
+}
+
+/**
+ * 获取并处理分组数据
+ * @returns {Promise<Array>} 处理后的分组数组
+ * @description 从后端获取分组数据，并添加分类和清理名称信息
+ * @returns {Array<{name: string, files: Array, mounted: boolean, category: string, cleanName: string}>} 处理后的分组数组
+ */
+async function getMaps() {
+  // 使用 ??= 实现 inflight 缓存，避免重复请求
+  return (getMaps.p ??= invoke("get_maps").then((groups) => {
+    // 为每个分组添加分类信息，并去掉相应的前缀
+    groups.forEach((group) => {
+      let groupName = group.name;
+      // 去掉相应的前缀
+      if (groupName.startsWith("【Map】")) {
+        group.category = "kitasoda";
+        group.cleanName = groupName.replace("【Map】", "").trim();
+      } else if (/^[A-Za-z]-/.test(groupName)) {
+        group.category = "ssdraid0";
+        group.cleanName = groupName.replace(/^([A-Za-z]-)/, "").trim();
+      } else {
+        group.category = "unsorted";
+        group.cleanName = groupName.trim();
+      }
+    });
+    return groups;
+  }));
+}
+
+/**
+ * 加载文件列表
+ * @param {number} clearMode - 清空模式：0=不清空列表，1=清空列表，2=清空列表并重新加载
+ * @description 加载并渲染文件列表，根据 clearMode 参数决定是否清空现有列表
+ */
+async function loadFileList(clearMode = 0) {
   try {
     const fileListElement = document.getElementById("fileList");
 
@@ -27,32 +100,22 @@ async function loadFileList(clear = false) {
     });
     const scrollTop = fileListElement.scrollTop;
 
-    if (clear)
-      fileListElement.innerHTML = `<p class="no-files">正在加载...</p>`;
+    switch (clearMode) {
+      case 2:
+        fileListElement.innerHTML = `<p class="no-files">正在加载...</p>`;
+      case 1:
+        delete getMaps.p;
+      default:
+        break;
+    }
 
-    /** @type {Array<{name: string, files: Array, mounted: boolean}>} */
-    const groups = await invoke("get_maps");
+    // 获取处理后的分组数据
+    /** @type {Array<{name: string, files: Array, mounted: boolean, category: string, cleanName: string}>} */
+    const groups = await getMaps();
 
-    // 分类逻辑：根据分组名称规则对地图进行分类
     if (groups && groups.length > 0) {
-      // 为每个分组添加分类信息，并去掉相应的前缀
-      groups.forEach((group) => {
-        let groupName = group.name;
-        // 去掉相应的前缀
-        if (groupName.startsWith("【Map】")) {
-          group.category = "kitasoda";
-          group.cleanName = groupName.replace("【Map】", "").trim();
-        } else if (groupName.startsWith("A-") || groupName.startsWith("B-")) {
-          group.category = "ssdraid0";
-          group.cleanName = groupName.replace(/^(A-|B-)/, "").trim();
-        } else {
-          group.category = "unsorted";
-          group.cleanName = groupName.trim();
-        }
-      });
-
       // 根据筛选条件过滤分组
-      const filteredGroups = groups.filter((group) => {
+      let filteredGroups = groups.filter((group) => {
         // 分类筛选
         if (
           currentFilters.category !== "all" &&
@@ -72,16 +135,32 @@ async function loadFileList(clear = false) {
           }
         }
 
-        // 搜索筛选
-        if (currentFilters.search) {
-          const groupName = (group.cleanName || group.name).toLowerCase();
-          if (!groupName.includes(currentFilters.search)) {
-            return false;
-          }
-        }
-
         return true;
       });
+
+      // 使用 Fuse.js 进行搜索
+      if (currentFilters.search) {
+        // 配置 Fuse.js
+        const fuse = new Fuse(filteredGroups, {
+          keys: ["cleanName"],
+          includeScore: true,
+          distance: 100,
+          minMatchCharLength: 1,
+        });
+
+        // 执行搜索
+        const searchResults = fuse.search(currentFilters.search);
+        // 提取匹配的分组，并添加匹配分数
+        filteredGroups = searchResults.map((result) => {
+          result.item.searchScore = result.score;
+          return result.item;
+        });
+      } else {
+        // 当搜索关键词被清空时，确保所有分组都没有 searchScore 属性
+        filteredGroups.forEach((group) => {
+          delete group.searchScore;
+        });
+      }
 
       // 获取模板
       const groupItemTemplate =
@@ -90,69 +169,117 @@ async function loadFileList(clear = false) {
         document.getElementById("fileItemTemplate").innerHTML;
 
       // 渲染所有分组
-      filteredGroups
-        .sort((a, b) => {
-          // 定义分类的优先级
-          const categoryPriority = {
-            kitasoda: 0,
-            ssdraid0: 1,
-            unsorted: 2,
-          };
+      filteredGroups.forEach((group) => {
+        const groupName = group.name;
+        const files = group.files;
+        const groupMounted = group.mounted || false;
 
-          // 先按分类优先级排序
-          const priorityA = categoryPriority[a.category] || 2;
-          const priorityB = categoryPriority[b.category] || 2;
+        if (files.length > 0) {
+          // 计算分组总大小
+          const totalSize = files.reduce((sum, file) => sum + file.size, 0);
 
-          if (priorityA !== priorityB) {
-            return priorityA - priorityB;
-          }
+          // 为分组生成唯一ID
+          const groupId = `group-${encodeURIComponent(groupName).replace(
+            /[^a-zA-Z0-9]/g,
+            "-",
+          )}`;
+          const groupKey = encodeURIComponent(groupName);
 
-          // 分类相同则按清理后的名称排序
-          return naturalSortCompare(a.cleanName, b.cleanName);
-        })
-        .forEach((group) => {
-          const groupName = group.name;
-          const files = group.files;
-          const groupMounted = group.mounted || false;
+          // 检查分组是否已存在
+          let groupElement = document.getElementById(groupId);
 
-          if (files.length > 0) {
-            // 计算分组总大小
-            const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+          if (!groupElement) {
+            // 分组不存在，创建新的
+            let groupHtml = groupItemTemplate
+              .replace(/\{\{groupKey\}\}/g, groupKey)
+              .replace(
+                /\{\{displayGroupName\}\}/g,
+                group.cleanName || groupName,
+              )
+              .replace(/\{\{fileCount\}\}/g, files.length)
+              .replace(/\{\{totalSize\}\}/g, formatFileSize(totalSize))
+              .replace(/\{\{category\}\}/g, group.category || "unsorted")
+              .replace(/\{\{groupId\}\}/g, groupId)
+              .replace(/\{\{groupMounted\}\}/g, groupMounted)
+              .replace(
+                /\{\{groupMountBtnClass\}\}/g,
+                groupMounted ? "unmount" : "mount",
+              )
+              .replace(
+                /\{\{groupMountBtnText\}\}/g,
+                groupMounted ? "卸载" : "挂载",
+              );
 
-            // 为分组生成唯一ID
-            const groupId = `group-${encodeURIComponent(groupName).replace(
-              /[^a-zA-Z0-9]/g,
-              "-",
-            )}`;
-            const groupKey = encodeURIComponent(groupName);
+            // 渲染分组内的每个文件
+            let filesHtml = "";
+            files
+              .sort((a, b) => naturalSortCompare(a.name, b.name))
+              .forEach((file) => {
+                const isMounted = file.mounted || false;
+                const fileHtml = fileItemTemplate
+                  .replace(/\{\{groupKey\}\}/g, groupKey)
+                  .replace(/\{\{displayName\}\}/g, file.name)
+                  .replace(/\{\{fileName\}\}/g, file.name)
+                  .replace(/\{\{fileSize\}\}/g, formatFileSize(file.size))
+                  .replace(
+                    /\{\{mountStatusClass\}\}/g,
+                    isMounted ? "mounted" : "unmounted",
+                  )
+                  .replace(
+                    /\{\{mountStatusText\}\}/g,
+                    isMounted ? "已挂载" : "未挂载",
+                  );
+                filesHtml += fileHtml;
+              });
 
-            // 检查分组是否已存在
-            let groupElement = document.getElementById(groupId);
+            // 将文件HTML插入到分组HTML中
+            const tempDiv = document.createElement("div");
+            tempDiv.innerHTML = groupHtml;
+            const groupFilesElement = tempDiv.querySelector(".group-files");
+            if (groupFilesElement) {
+              groupFilesElement.innerHTML = filesHtml;
+            }
+            groupHtml = tempDiv.innerHTML;
 
-            if (!groupElement) {
-              // 分组不存在，创建新的
-              let groupHtml = groupItemTemplate
-                .replace(/\{\{groupKey\}\}/g, groupKey)
-                .replace(
-                  /\{\{displayGroupName\}\}/g,
-                  group.cleanName || groupName,
-                )
-                .replace(/\{\{fileCount\}\}/g, files.length)
-                .replace(/\{\{totalSize\}\}/g, formatFileSize(totalSize))
-                .replace(/\{\{category\}\}/g, group.category || "unsorted")
-                .replace(/\{\{groupId\}\}/g, groupId)
-                .replace(/\{\{groupMounted\}\}/g, groupMounted)
-                .replace(
-                  /\{\{groupMountBtnClass\}\}/g,
-                  groupMounted ? "unmount" : "mount",
-                )
-                .replace(
-                  /\{\{groupMountBtnText\}\}/g,
-                  groupMounted ? "卸载" : "挂载",
-                );
+            // 创建分组元素并添加到列表
+            const tempContainer = document.createElement("div");
+            tempContainer.innerHTML = groupHtml;
+            const newGroupElement = tempContainer.firstElementChild;
+            // 存储排序所需的数据
+            if (group.searchScore !== undefined) {
+              newGroupElement.dataset.searchScore = group.searchScore;
+            }
+            newGroupElement.dataset.category = group.category;
+            newGroupElement.dataset.cleanName = group.cleanName;
+            fileListElement.appendChild(newGroupElement);
+          } else {
+            // 分组已存在，更新内容
+            const groupItem = groupElement.closest(".group-item");
 
-              // 渲染分组内的每个文件
-              let filesHtml = "";
+            // 更新分组统计信息
+            const statsElement = groupItem.querySelector(".group-stats");
+            if (statsElement) {
+              statsElement.textContent = `${
+                files.length
+              } 个文件 · ${formatFileSize(totalSize)}`;
+            }
+
+            // 更新挂载按钮
+            const mountBtn = groupItem.querySelector(".group-mount-btn");
+            if (mountBtn) {
+              mountBtn.setAttribute("data-mounted", groupMounted);
+              mountBtn.textContent = groupMounted ? "卸载" : "挂载";
+              mountBtn.className = `group-mount-btn ${
+                groupMounted ? "unmount" : "mount"
+              }`;
+            }
+
+            // 更新文件列表
+            const groupFilesElement =
+              groupElement.querySelector(".group-files");
+            if (groupFilesElement) {
+              groupFilesElement.innerHTML = "";
+
               files
                 .sort((a, b) => naturalSortCompare(a.name, b.name))
                 .forEach((file) => {
@@ -170,77 +297,25 @@ async function loadFileList(clear = false) {
                       /\{\{mountStatusText\}\}/g,
                       isMounted ? "已挂载" : "未挂载",
                     );
-                  filesHtml += fileHtml;
+
+                  const tempDiv = document.createElement("div");
+                  tempDiv.innerHTML = fileHtml;
+                  groupFilesElement.appendChild(tempDiv.firstElementChild);
                 });
-
-              // 将文件HTML插入到分组HTML中
-              const tempDiv = document.createElement("div");
-              tempDiv.innerHTML = groupHtml;
-              const groupFilesElement = tempDiv.querySelector(".group-files");
-              if (groupFilesElement) {
-                groupFilesElement.innerHTML = filesHtml;
-              }
-              groupHtml = tempDiv.innerHTML;
-
-              // 创建分组元素并添加到列表
-              const tempContainer = document.createElement("div");
-              tempContainer.innerHTML = groupHtml;
-              const newGroupElement = tempContainer.firstElementChild;
-              fileListElement.appendChild(newGroupElement);
-            } else {
-              // 分组已存在，更新内容
-              const groupItem = groupElement.closest(".group-item");
-
-              // 更新分组统计信息
-              const statsElement = groupItem.querySelector(".group-stats");
-              if (statsElement) {
-                statsElement.textContent = `${
-                  files.length
-                } 个文件 · ${formatFileSize(totalSize)}`;
-              }
-
-              // 更新挂载按钮
-              const mountBtn = groupItem.querySelector(".group-mount-btn");
-              if (mountBtn) {
-                mountBtn.setAttribute("data-mounted", groupMounted);
-                mountBtn.textContent = groupMounted ? "卸载" : "挂载";
-                mountBtn.className = `group-mount-btn ${
-                  groupMounted ? "unmount" : "mount"
-                }`;
-              }
-
-              // 更新文件列表
-              const groupFilesElement =
-                groupElement.querySelector(".group-files");
-              if (groupFilesElement) {
-                groupFilesElement.innerHTML = "";
-
-                files
-                  .sort((a, b) => naturalSortCompare(a.name, b.name))
-                  .forEach((file) => {
-                    const isMounted = file.mounted || false;
-                    const fileHtml = fileItemTemplate
-                      .replace(/\{\{groupKey\}\}/g, groupKey)
-                      .replace(/\{\{displayName\}\}/g, file.name)
-                      .replace(/\{\{fileName\}\}/g, file.name)
-                      .replace(/\{\{fileSize\}\}/g, formatFileSize(file.size))
-                      .replace(
-                        /\{\{mountStatusClass\}\}/g,
-                        isMounted ? "mounted" : "unmounted",
-                      )
-                      .replace(
-                        /\{\{mountStatusText\}\}/g,
-                        isMounted ? "已挂载" : "未挂载",
-                      );
-
-                    const tempDiv = document.createElement("div");
-                    tempDiv.innerHTML = fileHtml;
-                    groupFilesElement.appendChild(tempDiv.firstElementChild);
-                  });
-              }
             }
+
+            // 更新排序所需的数据
+            if (group.searchScore !== undefined) {
+              groupItem.dataset.searchScore = group.searchScore;
+            } else {
+              // 当搜索关键词被清空时，移除 data-search-score 属性
+              delete groupItem.dataset.searchScore;
+            }
+            groupItem.dataset.category = group.category;
+            groupItem.dataset.cleanName = group.cleanName;
           }
-        });
+        }
+      });
 
       // 移除不存在的分组
       const existingGroupIds = new Set(
@@ -285,6 +360,9 @@ async function loadFileList(clear = false) {
           }
         }
       });
+
+      // 对 DOM 元素进行排序
+      sortGroupElements(fileListElement);
 
       // 恢复滚动位置
       fileListElement.scrollTop = scrollTop;
@@ -379,7 +457,7 @@ async function batchMountGroups() {
     }
 
     // 刷新列表
-    await loadFileList();
+    await loadFileList(1);
 
     if (mountedCount > 0) {
       await dialog.message(`已成功挂载 ${mountedCount} 个分组！`, {
@@ -454,7 +532,7 @@ async function batchUnmountGroups() {
     }
 
     // 刷新列表
-    await loadFileList();
+    await loadFileList(1);
 
     if (unmountedCount > 0) {
       await dialog.message(`已成功卸载 ${unmountedCount} 个分组！`, {
@@ -606,7 +684,7 @@ async function batchDeleteFiles() {
       }
 
       // 删除后刷新列表
-      await loadFileList();
+      await loadFileList(1);
 
       await dialog.message(`已成功删除 ${deletedCount} 个分组！`, {
         kind: "info",
@@ -678,7 +756,7 @@ async function changeDataDir() {
         config: { ...config, nmd_data: newDir },
       });
       // 刷新文件列表
-      loadFileList(true);
+      loadFileList(2);
     }
   } catch (error) {
     console.error("修改数据目录失败:", error);
@@ -739,7 +817,7 @@ async function changeDataDir() {
           });
 
           // 删除后刷新列表
-          loadFileList();
+          loadFileList(1);
 
           // 显示删除成功提示
           await dialog.message(`已成功删除分组！`, {
@@ -775,7 +853,7 @@ async function changeDataDir() {
         }
 
         // 刷新文件列表
-        loadFileList();
+        loadFileList(1);
       } catch (error) {
         console.error("组挂载/卸载失败:", error);
         const errorMsg = error.message || JSON.stringify(error);
@@ -852,7 +930,7 @@ async function changeDataDir() {
         // 显示清理结果
         alert(result);
         // 刷新文件列表
-        await loadFileList();
+        await loadFileList(0);
       } catch (error) {
         console.error("清理无效链接失败:", error);
         alert("清理无效链接失败: " + error.message);
@@ -893,5 +971,5 @@ async function changeDataDir() {
     .addEventListener("click", batchDeleteFiles);
 
   // 初始加载文件列表
-  loadFileList(true);
+  loadFileList(2);
 })();
