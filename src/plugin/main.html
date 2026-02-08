@@ -2,7 +2,7 @@
   !(function () {
     function replace() {
       const qrBtn = document.querySelectorAll(
-        "div.fileinfo > div:nth-child(3) > div > button"
+        "div.fileinfo > div:nth-child(3) > div > button",
       )[1];
       if (!qrBtn) return;
 
@@ -25,7 +25,7 @@
 
     function remove() {
       const qrBtn = document.querySelectorAll(
-        "div.fileinfo > div:nth-child(3) > div > button"
+        "div.fileinfo > div:nth-child(3) > div > button",
       )[1];
       if (qrBtn) qrBtn.parentNode.removeChild(qrBtn);
     }
@@ -93,16 +93,13 @@
         .then(() => window.__TAURI__.core.convertFileSrc)
         .then((f) => f("plugin/main.js", "asset"))
         .then((s) => decodeURIComponent(s))
-        .then((u) => fetch(u))
-        .then((r) => r.text())
-        .then((c) => new Function(c))
-        .then((f) => f());
+        .then((u) => import(u));
     } catch (error) {
       failed = true;
     } finally {
       const setupObserver = setupObserverOrigin.bind(
         null,
-        failed ? replace : remove
+        failed ? replace : remove,
       );
 
       ["DOMContentLoaded", "popstate"].forEach((event) => {
