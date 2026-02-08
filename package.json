@@ -8,7 +8,7 @@
     "build": "set NODE_ENV=production && npm run tauri:win build",
     "check": "npm run pretauri && pushd src-tauri && cargo check",
     "dev": "set NODE_ENV=development && npm run tauri:win dev",
-    "pretauri": "npm run version:sync && node minify.js",
+    "pretauri": "npm run version:sync && node minify.js && node lib-copy.js",
     "tauri": "tauri",
     "tauri:win": "(FOR /F \"usebackq tokens=*\" %i IN (\"src-tauri/.env\") DO @SET %i) && npm run tauri",
     "version": "node version.js",
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "cssnano": "^7.1.2",
+    "fuse.js": "^7.1.0",
     "html-minifier-terser": "^7.2.0",
     "terser": "^5.46.0"
   },
