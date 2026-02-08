@@ -16,12 +16,8 @@
             href: getAssets("serverlist/main.css"),
           }),
         );
-        return getAssets("serverlist/main.js");
-      })()
-        .then((u) => fetch(u))
-        .then((r) => r.text())
-        .then((c) => new Function(c))
-        .then((f) => f());
+        return ["serverlist/main.js"].map((e) => getAssets(e));
+      })().then((m) => m.map((e) => import(e)));
     </script>
   </head>
 

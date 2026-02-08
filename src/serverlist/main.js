@@ -1,18 +1,6 @@
 const getAssets = (asset) =>
   decodeURIComponent(window.__TAURI__.core.convertFileSrc(asset, "asset"));
 
-async function loadServerList() {
-  try {
-    const listUrl = getAssets("serverlist/list.json");
-    const response = await fetch(listUrl);
-    const servers = await response.json();
-    return servers;
-  } catch (error) {
-    console.error("加载服务器列表失败:", error);
-    return [];
-  }
-}
-
 function renderServerList(servers) {
   const serverList = document.getElementById("serverList");
   const template = document.getElementById("serverItemTemplate");
@@ -106,8 +94,9 @@ async function openServerWindow(url, name, icon) {
 }
 
 async function main() {
-  const servers = await loadServerList();
-  renderServerList(servers);
+  return import(getAssets("serverlist/list.json"), {
+    with: { type: "json" },
+  }).then(({ default: servers }) => renderServerList(servers));
 }
 
 main();
