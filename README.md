@@ -106,6 +106,9 @@ nyaser-maps-downloader/
 │   │   ├── main.html
 │   │   └── main.js
 │   └── serverlist/      # 服务器列表模块
+│       ├── list.json
+│       ├── main.css
+│       ├── main.html
 │       └── main.js
 ├── src-tauri/           # Rust 后端代码
 │   ├── bin/             # 二进制文件和依赖
@@ -133,19 +136,25 @@ nyaser-maps-downloader/
 │   │   ├── queue_manager.rs   # 通用队列管理功能
 │   │   ├── symlink_manager.rs # 符号链接管理模块
 │   │   └── utils.rs           # 工具函数集合
+│   ├── .gitignore
 │   ├── build.rs         # 构建脚本
-│   ├── tauri.conf.json  # Tauri 应用配置
-│   └── Cargo.toml       # Rust 依赖配置
+│   ├── Cargo.lock
+│   ├── Cargo.toml       # Rust 依赖配置
+│   └── tauri.conf.json  # Tauri 应用配置
 ├── .github/             # GitHub Actions 工作流
 │   └── workflows/
 │       └── release.yml  # 自动发布配置
 ├── .vscode/             # VS Code 配置
+├── .gitignore
+├── HISTORY.md           # 版本更新历史
+├── README.md            # 项目文档（当前文件）
+├── lib-copy.js          # 依赖复制脚本
 ├── minify.js            # HTML 压缩脚本
 ├── minify-options.js    # 压缩选项配置
+├── package-lock.json    # 前端依赖锁定文件
 ├── package.json         # 前端依赖配置
 ├── version.js           # 版本管理脚本
-├── version-sync.js      # 版本同步脚本
-└── README.md            # 项目文档（当前文件）
+└── version-sync.js      # 版本同步脚本
 ```
 
 ## 技术栈
