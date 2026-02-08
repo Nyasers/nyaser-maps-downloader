@@ -94,7 +94,7 @@ fn inherit_window_position_and_size_from_main(
 /// - 成功时返回包含成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 #[tauri::command]
-pub fn open_filemanager_window(app_handle: AppHandle) -> Result<String, String> {
+pub fn open_filemanager_window(app_handle: AppHandle) -> Result<(), String> {
     log_info!("接收到打开文件管理器窗口请求");
 
     match app_handle.get_webview_window("filemanager") {
@@ -105,11 +105,11 @@ pub fn open_filemanager_window(app_handle: AppHandle) -> Result<String, String> 
             inherit_window_position_and_size_from_main(&window, &app_handle, "文件管理器");
 
             if let Some(window) = app_handle.get_webview_window("filemanager") {
-                let _ = window.reload();
+                window.reload().unwrap();
             }
 
-            log_info!("文件管理器窗口已成功打开并发送了刷新文件列表事件");
-            Ok("文件管理器窗口已打开".to_string())
+            log_info!("文件管理器窗口已成功打开");
+            Ok(())
         }
         None => {
             log_error!("未找到文件管理器窗口");
@@ -324,7 +324,7 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
 /// - 成功时返回包含成功信息的Ok
 /// - 失败时返回包含错误信息的Err
 #[tauri::command]
-pub fn open_serverlist_window(app_handle: AppHandle) -> Result<String, String> {
+pub fn open_serverlist_window(app_handle: AppHandle) -> Result<(), String> {
     log_info!("接收到打开服务器列表窗口请求");
 
     match app_handle.get_webview_window("serverlist") {
@@ -334,32 +334,8 @@ pub fn open_serverlist_window(app_handle: AppHandle) -> Result<String, String> {
             reset_window_state(&window, "服务器列表");
             inherit_window_position_and_size_from_main(&window, &app_handle, "服务器列表");
 
-            std::thread::spawn(move || {
-                let js_code = match crate::get_assets_path("assets/serverlist/main.js") {
-                    Ok(resource_path) => {
-                        log_debug!("读取serverlist/main.js路径: {:?}", resource_path);
-                        std::fs::read_to_string(resource_path)
-                    }
-                    Err(e) => {
-                        log_error!("无法获取serverlist/main.js路径: {:?}", e);
-                        Err(std::io::Error::new(std::io::ErrorKind::NotFound, e))
-                    }
-                };
-
-                match js_code {
-                    Ok(content) => {
-                        if let Err(e) = window.eval(&content) {
-                            log_error!("在服务器列表窗口执行JavaScript失败: {:?}", e);
-                        }
-                    }
-                    Err(e) => {
-                        log_error!("无法读取serverlist/main.js文件内容: {:?}", e);
-                    }
-                }
-            });
-
             log_info!("服务器列表窗口已成功打开");
-            Ok("服务器列表窗口已打开".to_string())
+            Ok(())
         }
         None => {
             log_error!("未找到服务器列表窗口");
