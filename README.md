@@ -37,6 +37,7 @@ Nyaser Maps Downloader 简化了从 maps.nyase.ru 网站获取地图资源的过
 - **资源协议处理**：使用自定义 asset:// 协议加载应用资源，优化资源管理
 - **确认对话框**：重要操作前提供确认对话框，防止误操作
 - **UI 遮罩层**：在关键操作时显示遮罩层，防止用户误触
+- **符号链接支持验证**：符号链接支持验证和管理员重启功能，确保符号链接创建可用
 
 ## 系统要求
 
@@ -72,17 +73,20 @@ Nyaser Maps Downloader 简化了从 maps.nyase.ru 网站获取地图资源的过
 ### 构建步骤
 
 1. 克隆仓库：
+
    ```bash
    git clone https://github.com/Nyasers/nyaser-maps-downloader.git
    cd nyaser-maps-downloader
    ```
 
 2. 安装依赖：
+
    ```bash
    npm install
    ```
 
 3. 开发模式运行：
+
    ```bash
    npm run tauri dev
    ```
@@ -166,7 +170,7 @@ nyaser-maps-downloader/
 - **解压工具**：7-Zip (7z.exe)
 - **构建工具**：npm, Cargo
 - **核心依赖**：
-  - 前端：@tauri-apps/cli, cssnano, html-minifier-terser, terser, dotenv-cli
+  - 前端：@tauri-apps/cli, cssnano, html-minifier-terser, terser, dotenv-cli, fuse.js (模糊搜索功能)
   - 后端：
     - Tauri 2.x (protocol-asset feature)
     - tauri-plugin-dialog, tauri-plugin-deep-link, tauri-plugin-single-instance, tauri-plugin-updater
@@ -195,4 +199,3 @@ nyaser-maps-downloader/
 - 应用支持自动更新功能，建议保持网络连接以获取最新版本
 - 如需使用 Deep Link 功能，请确保已正确关联 nmd:// 协议
 - 应用关闭时会自动清理临时资源，确保系统资源得到释放
-
