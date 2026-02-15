@@ -1257,6 +1257,12 @@ pub fn cleanup_invalid_links() -> Result<String, String> {
 
     // 检查每个符号链接的目标文件
     for symlink in symlinks {
+        if let Some(link_name) = symlink.path.split('/').last() {
+            if !link_name.starts_with("nmd_link_") {
+                continue;
+            }
+        }
+
         let target_path = std::path::Path::new(&symlink.target_path);
 
         // 检查目标文件是否存在
