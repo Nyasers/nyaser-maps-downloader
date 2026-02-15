@@ -26,6 +26,98 @@ mod queue_manager;
 mod symlink_manager;
 mod utils;
 
+/// 验证符号链接支持
+///
+/// # 参数
+/// - `cache_dir`: 缓存目录路径
+/// - `addons_dir`: 游戏 addons 目录路径，即符号链接的目标目录
+///
+/// # 返回值
+/// - 成功时返回 Ok(())
+/// - 失败时返回包含错误信息的 Err
+pub fn validate_symlink_support(
+    cache_dir: &std::path::Path,
+    addons_dir: &std::path::Path,
+) -> Result<(), String> {
+    use std::fs;
+    use std::os::windows::fs::symlink_file;
+
+    // 确保 addons_dir 存在
+    fs::create_dir_all(addons_dir).map_err(|e| format!("无法创建 addons 目录: {:?}", e))?;
+
+    // 生成哈希值用于链接文件名和测试内容
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use uuid::Uuid;
+
+    let mut hasher = DefaultHasher::new();
+    let uuid = Uuid::new_v4();
+    uuid.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    // 创建临时文件
+    let temp_file = cache_dir.join(format!("nmd_test_{:016x}.tmp", hash));
+    let test_content = format!("nmd_test: {:016x}", hash);
+    fs::write(&temp_file, test_content.clone())
+        .map_err(|e| format!("无法创建临时文件: {:?}", e))?;
+
+    // 创建符号链接路径到 addons_dir
+    let symlink_path = addons_dir.join(format!("nmd_link_{:016x}.tmp", hash));
+
+    // 清理可能存在的旧链接
+    if symlink_path.exists() {
+        fs::remove_file(&symlink_path).ok();
+    }
+
+    // 创建符号链接
+    symlink_file(&temp_file, &symlink_path).map_err(|e| format!("无法创建符号链接: {:?}", e))?;
+
+    // 尝试通过符号链接读取文件
+    let content = fs::read_to_string(&symlink_path)
+        .map_err(|e| format!("无法通过符号链接读取文件: {:?}", e))?;
+
+    if content != test_content {
+        return Err("符号链接读取内容验证失败".to_string());
+    }
+
+    // 清理临时符号链接
+    fs::remove_file(&symlink_path).ok();
+
+    Ok(())
+}
+
+/// 以管理员身份重启应用
+///
+/// # 返回值
+/// - 成功时返回 Ok(())
+/// - 失败时返回包含错误信息的 Err
+pub fn restart_as_admin() -> Result<(), String> {
+    use std::process::Command;
+
+    // 获取当前可执行文件路径
+    if let Ok(exe_path) = std::env::current_exe() {
+        log_debug!("当前可执行文件路径: {:?}", exe_path);
+        if let Some(exe_path_str) = exe_path.to_str() {
+            // 构建重启命令
+            let mut cmd = Command::new("powershell");
+            cmd.arg("-Command")
+                .arg(format!("Start-Process '{}' -Verb RunAs", exe_path_str));
+
+            // 执行命令
+            if let Err(e) = cmd.spawn() {
+                return Err(format!("无法启动管理员权限进程: {:?}", e));
+            } else {
+                // 退出当前应用
+                std::process::exit(0);
+            }
+        } else {
+            return Err("可执行文件路径不是有效字符串".to_string());
+        }
+    } else {
+        return Err("无法获取可执行文件路径".to_string());
+    }
+}
+
 /// 从Assets中获取资源路径
 ///
 /// # 参数

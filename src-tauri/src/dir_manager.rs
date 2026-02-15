@@ -11,6 +11,7 @@ use std::{
 extern crate lazy_static;
 use lazy_static::lazy_static;
 use regex::Regex;
+use tauri_plugin_dialog::MessageDialogKind;
 use winreg::{enums::*, RegKey};
 
 // 内部模块导入
@@ -73,6 +74,34 @@ impl DirManager {
     /// 设置 L4D2 addons 目录
     pub fn set_addons_dir(&mut self, addons_dir: PathBuf) {
         self.addons_dir = Some(addons_dir);
+        if let Some(addons_dir) = self.addons_dir() {
+            // 验证符号链接功能
+            // 由于 addons_dir 可能尚未设置，我们先使用 cache_dir 作为临时目标
+            // 这样可以验证符号链接功能是否基本可用
+            if let Err(e) = crate::validate_symlink_support(&self.cache_dir(), addons_dir) {
+                // 尝试以管理员身份重启应用
+                if let Ok(guard) = crate::init::GLOBAL_APP_HANDLE.read() {
+                    if let Some(app_handle) = &*guard {
+                        crate::log_error!("符号链接验证失败，尝试以管理员身份重启: {}", e);
+
+                        // 尝试以管理员身份重启
+                        if let Err(restart_err) = crate::restart_as_admin() {
+                            crate::log_error!("以管理员身份重启失败: {}", restart_err);
+                            let restart_error_msg = format!(
+                                "尝试以管理员身份重启应用失败: {}\n\n请手动以管理员身份运行应用。",
+                                restart_err
+                            );
+                            crate::dialog_manager::show_blocking_dialog(
+                                app_handle,
+                                &restart_error_msg,
+                                "重启失败",
+                                MessageDialogKind::Error,
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// 获取 L4D2 addons 目录路径（如果已设置）
