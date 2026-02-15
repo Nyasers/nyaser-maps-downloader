@@ -100,8 +100,12 @@ pub fn restart_as_admin() -> Result<(), String> {
         if let Some(exe_path_str) = exe_path.to_str() {
             // 构建重启命令
             let mut cmd = Command::new("powershell");
-            cmd.arg("-Command")
-                .arg(format!("Start-Process '{}' -Verb RunAs", exe_path_str));
+            let msg = "您的系统需要管理员权限以创建符号链接。\n获取管理员权限失败，无法启动应用。";
+
+            cmd.arg("-Command").arg(format!(
+                "Start-Process '{}' -Verb RunAs; if (!$?) {{ Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('{}', 'Nyaser Maps Downloader', 0, 16) }}",
+                exe_path_str, msg
+            ));
 
             // 执行命令
             if let Err(e) = cmd.spawn() {
