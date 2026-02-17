@@ -327,7 +327,7 @@ fn cleanup_temp_file(task: &ExtractTask, extract_task_id: &str, success: bool) {
 }
 
 // 重试解压
-fn retry_extract(
+async fn retry_extract(
     task: &ExtractTask,
     extract_task_id: &str,
     initial_result: Result<String, String>,
@@ -345,14 +345,14 @@ fn retry_extract(
             final_result.unwrap_err()
         );
 
-        std::thread::sleep(std::time::Duration::from_secs(2 * retry_count as u64));
+        tokio::time::sleep(tokio::time::Duration::from_secs(2 * retry_count as u64)).await;
 
         log_debug!(
             "解压任务 [{}] 第 {} 次重试中...",
             extract_task_id,
             retry_count
         );
-        final_result = extract_with_7zip(&task.file_path, &task.archive_name);
+        final_result = extract_with_7zip(&task.file_path, &task.archive_name).await;
     }
 
     final_result
@@ -383,7 +383,7 @@ fn build_result_message(
 }
 
 // 处理解压任务
-fn process_extract_task(task: ExtractTask, extract_task_id: &str, download_task_id: &str) {
+async fn process_extract_task(task: ExtractTask, extract_task_id: &str, download_task_id: &str) {
     let filename = get_filename_from_path(&task.file_path);
     let aria2_file_path = build_aria2_file_path(&task.file_path);
 
@@ -402,9 +402,9 @@ fn process_extract_task(task: ExtractTask, extract_task_id: &str, download_task_
         task.file_path
     );
 
-    let result = extract_with_7zip(&task.file_path, &task.archive_name);
+    let result = extract_with_7zip(&task.file_path, &task.archive_name).await;
 
-    let final_result = retry_extract(&task, extract_task_id, result);
+    let final_result = retry_extract(&task, extract_task_id, result).await;
 
     let success = final_result.is_ok();
     cleanup_temp_file(&task, extract_task_id, success);
@@ -481,7 +481,7 @@ pub fn start_extract_queue_manager() {
         let task_id = task.id.clone();
 
         tauri::async_runtime::spawn(async move {
-            process_extract_task(task, &extract_task_id, &download_task_id);
+            process_extract_task(task, &extract_task_id, &download_task_id).await;
 
             match EXTRACT_MANAGER.queue.lock() {
                 Ok(mut queue) => {
@@ -517,7 +517,7 @@ pub fn start_extract_queue_manager() {
 /// # 返回值
 /// - 成功时返回包含解压成功信息的Ok
 /// - 失败时返回包含错误信息的Err
-pub fn extract_with_7zip(file_path: &str, archive_name: &str) -> Result<String, String> {
+pub async fn extract_with_7zip(file_path: &str, archive_name: &str) -> Result<String, String> {
     log_debug!(
         "开始解压操作: 文件={}, 子文件夹={}",
         file_path,
@@ -606,7 +606,7 @@ pub fn extract_with_7zip(file_path: &str, archive_name: &str) -> Result<String, 
 
             // 自动挂载解压的文件
             log_info!("开始自动挂载组: {}", archive_name);
-            match crate::commands::mount_group(archive_name.to_string()) {
+            match crate::commands::mount_group(archive_name.to_string()).await {
                 Ok(msg) => {
                     log_info!("自动挂载成功: {}", msg);
                 }

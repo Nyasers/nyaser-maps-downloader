@@ -842,7 +842,7 @@ pub fn get_file_symlinks(dir_path: String) -> Result<serde_json::Value, String> 
 }
 
 #[tauri::command]
-pub fn create_file_symlink(
+pub async fn create_file_symlink(
     target_path: String,
     link_dir: String,
     link_name: String,
@@ -854,7 +854,7 @@ pub fn create_file_symlink(
         link_name
     );
 
-    crate::symlink_manager::create_file_symlink(&target_path, &link_dir, &link_name)
+    crate::symlink_manager::create_file_symlink(&target_path, &link_dir, &link_name).await
 }
 
 #[tauri::command]
@@ -865,7 +865,7 @@ pub fn delete_file_symlink(link_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn mount_file(group_name: String, file_name: String) -> Result<String, String> {
+pub async fn mount_file(group_name: String, file_name: String) -> Result<String, String> {
     log_info!("接收到挂载文件请求: 组={}, 文件={}", group_name, file_name);
 
     // 获取 maps 目录
@@ -932,7 +932,8 @@ pub fn mount_file(group_name: String, file_name: String) -> Result<String, Strin
         &source_path.to_string_lossy().to_string(),
         addons_dir.to_str().unwrap_or(""),
         &link_name,
-    )?;
+    )
+    .await?;
 
     log_info!("文件挂载成功: {} -> {}", relative_path, link_name);
     Ok(format!("文件挂载成功: {}", link_name))
@@ -986,7 +987,7 @@ pub fn unmount_file(
 }
 
 #[tauri::command]
-pub fn mount_group(group_name: String) -> Result<String, String> {
+pub async fn mount_group(group_name: String) -> Result<String, String> {
     log_info!("接收到挂载组请求: 组={}", group_name);
 
     // 获取 maps 目录
@@ -1042,14 +1043,12 @@ pub fn mount_group(group_name: String) -> Result<String, String> {
     };
 
     let mut mounted_count = 0;
-    let mut error_count = 0;
 
     for entry in entries {
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
                 log_warn!("读取文件项失败: {:?}", e);
-                error_count += 1;
                 continue;
             }
         };
@@ -1073,7 +1072,6 @@ pub fn mount_group(group_name: String) -> Result<String, String> {
             Some(n) => n.to_string_lossy().to_string(),
             None => {
                 log_warn!("无法获取文件名: {:?}", file_path);
-                error_count += 1;
                 continue;
             }
         };
@@ -1090,20 +1088,18 @@ pub fn mount_group(group_name: String) -> Result<String, String> {
             &file_path.to_string_lossy().to_string(),
             addons_dir.to_str().unwrap_or(""),
             &link_name,
-        ) {
+        )
+        .await
+        {
             Ok(_) => mounted_count += 1,
             Err(e) => {
-                log_warn!("挂载文件 {} 失败: {:?}", file_name, e);
-                error_count += 1;
+                log_error!("挂载文件 {} 失败: {:?}", file_name, e);
+                return Err(format!("组挂载失败: 挂载文件 {} 失败: {:?}", file_name, e));
             }
         }
     }
 
-    log_info!(
-        "组挂载完成: 成功挂载 {} 个文件，失败 {} 个",
-        mounted_count,
-        error_count
-    );
+    log_info!("组挂载完成: 成功挂载 {} 个文件", mounted_count);
     Ok(format!("组挂载完成: 成功挂载 {} 个文件", mounted_count))
 }
 

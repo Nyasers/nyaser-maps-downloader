@@ -452,6 +452,13 @@ async function batchMountGroups() {
           mountedCount++;
         } catch (error) {
           console.warn(`挂载分组 ${groupName} 失败:`, error);
+          const errorMsg = error.message || JSON.stringify(error);
+          await dialog.message(`挂载分组 ${groupName} 失败: ${errorMsg}`, {
+            kind: "error",
+            title: "挂载失败",
+          });
+          // 遇到错误时停止后续挂载操作
+          break;
         }
       }
     }
