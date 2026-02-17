@@ -502,20 +502,6 @@ pub async fn create_file_symlink(
     link_name: &str,
 ) -> Result<String, String> {
     // 使用服务器模式创建符号链接
-    let mut create_args = serde_json::Map::new();
-    create_args.insert(
-        "target".to_string(),
-        serde_json::Value::String(target_path.to_string()),
-    );
-    create_args.insert(
-        "dir".to_string(),
-        serde_json::Value::String(link_dir.to_string()),
-    );
-    create_args.insert(
-        "name".to_string(),
-        serde_json::Value::String(link_name.to_string()),
-    );
-
     let mut args_map = serde_json::Map::new();
     args_map.insert(
         "target".to_string(),

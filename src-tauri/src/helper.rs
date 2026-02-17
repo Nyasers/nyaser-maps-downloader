@@ -173,26 +173,45 @@ fn handle_client(mut stream: std::net::TcpStream, server_token: &str) {
 
         // Token验证
         if !server_token.is_empty() {
-            // 从消息中提取token
-            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&message) {
-                if let Some(token) = msg.get("token").and_then(|t| t.as_str()) {
-                    if token != server_token {
-                        println!("Token验证失败");
-                        let response = SymlinkResponse {
-                            success: false,
-                            message: "Token验证失败".to_string(),
-                        };
-                        let json_response = serde_json::to_string(&response).unwrap();
-                        let mut writer = BufWriter::new(&mut stream);
-                        writeln!(writer, "{}", json_response).unwrap();
-                        writer.flush().unwrap();
-                        continue;
+            // 尝试解析消息为JSON
+            match serde_json::from_str::<serde_json::Value>(&message) {
+                Ok(msg) => {
+                    // 提取token
+                    match msg.get("token").and_then(|t| t.as_str()) {
+                        Some(token) => {
+                            // 验证token
+                            if token != server_token {
+                                println!("Token验证失败");
+                                let response = SymlinkResponse {
+                                    success: false,
+                                    message: "Token验证失败".to_string(),
+                                };
+                                let json_response = serde_json::to_string(&response).unwrap();
+                                let mut writer = BufWriter::new(&mut stream);
+                                writeln!(writer, "{}", json_response).unwrap();
+                                writer.flush().unwrap();
+                                continue;
+                            }
+                        }
+                        None => {
+                            println!("缺少Token");
+                            let response = SymlinkResponse {
+                                success: false,
+                                message: "缺少Token".to_string(),
+                            };
+                            let json_response = serde_json::to_string(&response).unwrap();
+                            let mut writer = BufWriter::new(&mut stream);
+                            writeln!(writer, "{}", json_response).unwrap();
+                            writer.flush().unwrap();
+                            continue;
+                        }
                     }
-                } else {
-                    println!("缺少Token");
+                }
+                Err(_) => {
+                    println!("消息格式错误，无法解析Token");
                     let response = SymlinkResponse {
                         success: false,
-                        message: "缺少Token".to_string(),
+                        message: "消息格式错误，无法解析Token".to_string(),
                     };
                     let json_response = serde_json::to_string(&response).unwrap();
                     let mut writer = BufWriter::new(&mut stream);
@@ -200,17 +219,6 @@ fn handle_client(mut stream: std::net::TcpStream, server_token: &str) {
                     writer.flush().unwrap();
                     continue;
                 }
-            } else {
-                println!("消息格式错误，无法解析Token");
-                let response = SymlinkResponse {
-                    success: false,
-                    message: "消息格式错误，无法解析Token".to_string(),
-                };
-                let json_response = serde_json::to_string(&response).unwrap();
-                let mut writer = BufWriter::new(&mut stream);
-                writeln!(writer, "{}", json_response).unwrap();
-                writer.flush().unwrap();
-                continue;
             }
         }
 
