@@ -26,6 +26,7 @@ pub struct SymlinkResponse {
 struct GlobalState {
     helper_port: Option<u16>,
     long_connection: Option<TcpStream>,
+    helper_token: Option<String>,
 }
 
 lazy_static::lazy_static! {
@@ -33,6 +34,7 @@ lazy_static::lazy_static! {
     static ref GLOBAL_STATE: Mutex<GlobalState> = Mutex::new(GlobalState {
         helper_port: None,
         long_connection: None,
+        helper_token: None,
     });
 }
 
@@ -109,10 +111,7 @@ pub async fn ensure_server_running() -> Result<(), String> {
             existing_port
         } else {
             // 没有现有端口，分配新的端口
-            let new_port = find_available_port().unwrap_or_else(|| {
-                log_warn!("无法找到可用端口，使用默认端口 20721");
-                20721
-            });
+            let new_port = find_available_port().unwrap_or_else(|| 0);
 
             log_info!("为 helper 服务器分配端口号: {}", new_port);
             state.helper_port = Some(new_port);
@@ -121,9 +120,19 @@ pub async fn ensure_server_running() -> Result<(), String> {
     };
     log_info!("启动 helper 服务器，端口: {}", port);
 
+    // 生成UUID作为token
+    use uuid::Uuid;
+    let token = Uuid::new_v4().to_string();
+
+    // 保存token到全局状态
+    {
+        let mut state = GLOBAL_STATE.lock().unwrap();
+        state.helper_token = Some(token.clone());
+    }
+
     // 启动服务器
     match Command::new(&helper_path)
-        .args(["--port", &port.to_string()])
+        .args(["--port", &port.to_string(), "--token", &token])
         .spawn()
     {
         Ok(mut child) => {
@@ -332,9 +341,23 @@ fn get_long_connection() -> Option<std::net::TcpStream> {
 }
 
 /// 发送消息到 helper 服务器
-async fn send_message_to_server(message_json: &str) -> Result<SymlinkResponse, String> {
+async fn send_message_to_server(
+    message_map: serde_json::Map<String, serde_json::Value>,
+) -> Result<SymlinkResponse, String> {
     // 确保服务器已启动
     ensure_server_running().await?;
+
+    // 添加token到消息中
+    let mut message_with_token = message_map;
+    let token = {
+        let state = GLOBAL_STATE.lock().unwrap();
+        state.helper_token.clone().unwrap_or_default()
+    };
+    message_with_token.insert("token".to_string(), serde_json::Value::String(token));
+
+    // 序列化消息
+    let message_json = serde_json::to_string(&message_with_token)
+        .map_err(|e| format!("序列化消息失败: {:?}", e))?;
 
     // 尝试使用长连接发送消息
     if let Some(stream) = get_long_connection() {
@@ -493,13 +516,28 @@ pub async fn create_file_symlink(
         serde_json::Value::String(link_name.to_string()),
     );
 
+    let mut args_map = serde_json::Map::new();
+    args_map.insert(
+        "target".to_string(),
+        serde_json::Value::String(target_path.to_string()),
+    );
+    args_map.insert(
+        "path".to_string(),
+        serde_json::Value::String(link_dir.to_string()),
+    );
+    args_map.insert(
+        "name".to_string(),
+        serde_json::Value::String(link_name.to_string()),
+    );
+
     let mut message_map = serde_json::Map::new();
-    message_map.insert("create".to_string(), serde_json::Value::Object(create_args));
+    message_map.insert(
+        "cmd".to_string(),
+        serde_json::Value::String("create".to_string()),
+    );
+    message_map.insert("args".to_string(), serde_json::Value::Object(args_map));
 
-    let message_json =
-        serde_json::to_string(&message_map).map_err(|e| format!("序列化消息失败: {:?}", e))?;
-
-    match send_message_to_server(&message_json).await {
+    match send_message_to_server(message_map).await {
         Ok(response) => {
             if response.success {
                 log_info!("符号链接创建成功: {}", response.message);

@@ -98,7 +98,7 @@ pub struct SymlinkResponse {
 /// 创建文件符号链接
 fn create_file_symlink(
     target_path: &str,
-    link_dir: &str,
+    link_path: &str,
     link_name: &str,
 ) -> Result<String, String> {
     let target = Path::new(target_path);
@@ -111,14 +111,14 @@ fn create_file_symlink(
         return Err(format!("目标路径不是文件: {}", target_path));
     }
 
-    let link_dir_path = Path::new(link_dir);
+    let link_dir_path = Path::new(link_path);
 
     if !link_dir_path.exists() {
-        return Err(format!("链接目录不存在: {}", link_dir));
+        return Err(format!("链接目录不存在: {}", link_path));
     }
 
     if !link_dir_path.is_dir() {
-        return Err(format!("链接路径不是目录: {}", link_dir));
+        return Err(format!("链接路径不是目录: {}", link_path));
     }
 
     let link_path = link_dir_path.join(link_name);
@@ -144,7 +144,7 @@ fn create_file_symlink(
 }
 
 /// 处理单个客户端连接
-fn handle_client(mut stream: std::net::TcpStream) {
+fn handle_client(mut stream: std::net::TcpStream, server_token: &str) {
     // 不使用split，直接使用同一个流
     loop {
         // 读取一行消息
@@ -171,27 +171,94 @@ fn handle_client(mut stream: std::net::TcpStream) {
             }
         }
 
-        let response = match serde_json::from_str::<SymlinkMessage>(&message) {
-            Ok(msg) => {
-                if let Some(create_args) = msg.create {
-                    let target_path = create_args.target;
-                    let link_dir = create_args.dir;
-                    let link_name = create_args.name;
-
-                    match create_file_symlink(&target_path, &link_dir, &link_name) {
-                        Ok(message) => SymlinkResponse {
-                            success: true,
-                            message,
-                        },
-                        Err(error) => SymlinkResponse {
+        // Token验证
+        if !server_token.is_empty() {
+            // 从消息中提取token
+            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&message) {
+                if let Some(token) = msg.get("token").and_then(|t| t.as_str()) {
+                    if token != server_token {
+                        println!("Token验证失败");
+                        let response = SymlinkResponse {
                             success: false,
-                            message: error,
+                            message: "Token验证失败".to_string(),
+                        };
+                        let json_response = serde_json::to_string(&response).unwrap();
+                        let mut writer = BufWriter::new(&mut stream);
+                        writeln!(writer, "{}", json_response).unwrap();
+                        writer.flush().unwrap();
+                        continue;
+                    }
+                } else {
+                    println!("缺少Token");
+                    let response = SymlinkResponse {
+                        success: false,
+                        message: "缺少Token".to_string(),
+                    };
+                    let json_response = serde_json::to_string(&response).unwrap();
+                    let mut writer = BufWriter::new(&mut stream);
+                    writeln!(writer, "{}", json_response).unwrap();
+                    writer.flush().unwrap();
+                    continue;
+                }
+            } else {
+                println!("消息格式错误，无法解析Token");
+                let response = SymlinkResponse {
+                    success: false,
+                    message: "消息格式错误，无法解析Token".to_string(),
+                };
+                let json_response = serde_json::to_string(&response).unwrap();
+                let mut writer = BufWriter::new(&mut stream);
+                writeln!(writer, "{}", json_response).unwrap();
+                writer.flush().unwrap();
+                continue;
+            }
+        }
+
+        let response = match serde_json::from_str::<serde_json::Value>(&message) {
+            Ok(msg) => {
+                if let Some(cmd) = msg.get("cmd").and_then(|c| c.as_str()) {
+                    match cmd {
+                        "create" => {
+                            // create命令需要args参数
+                            if let Some(args) = msg.get("args").and_then(|a| a.as_object()) {
+                                if let (Some(target), Some(path), Some(name)) = (
+                                    args.get("target").and_then(|t| t.as_str()),
+                                    args.get("path").and_then(|p| p.as_str()),
+                                    args.get("name").and_then(|n| n.as_str()),
+                                ) {
+                                    match create_file_symlink(target, path, name) {
+                                        Ok(message) => SymlinkResponse {
+                                            success: true,
+                                            message,
+                                        },
+                                        Err(error) => SymlinkResponse {
+                                            success: false,
+                                            message: error,
+                                        },
+                                    }
+                                } else {
+                                    SymlinkResponse {
+                                        success: false,
+                                        message: "缺少必要参数".to_string(),
+                                    }
+                                }
+                            } else {
+                                SymlinkResponse {
+                                    success: false,
+                                    message: "缺少args参数".to_string(),
+                                }
+                            }
+                        }
+                        // 可以在这里添加其他不需要args的命令
+                        _ => SymlinkResponse {
+                            success: false,
+                            message: "未知命令".to_string(),
                         },
                     }
                 } else {
                     SymlinkResponse {
                         success: false,
-                        message: "未知命令".to_string(),
+                        message: "缺少cmd参数".to_string(),
                     }
                 }
             }
@@ -215,16 +282,18 @@ fn handle_client(mut stream: std::net::TcpStream) {
 fn start_server() {
     println!("启动符号链接服务器...");
 
-    // 从命令行参数中读取端口号，支持 --port 和 -p 参数
-    let mut port = 20721; // 默认端口
+    // 从命令行参数中读取端口号和token，支持 --port/-p 和 --token/-t 参数
+    let mut port = 0; // 默认随机端口
+    let mut token = String::new(); // 默认空token
     let args: Vec<String> = std::env::args().collect();
 
     for i in 1..args.len() {
         if (args[i] == "--port" || args[i] == "-p") && i + 1 < args.len() {
             if let Ok(p) = args[i + 1].parse::<u16>() {
                 port = p;
-                break;
             }
+        } else if (args[i] == "--token" || args[i] == "-t") && i + 1 < args.len() {
+            token = args[i + 1].clone();
         }
     }
 
@@ -238,10 +307,14 @@ fn start_server() {
     };
 
     println!("服务器已启动，监听端口 {}", port);
+    if !token.is_empty() {
+        println!("Token验证已启用");
+    }
 
     // 跟踪连接数
     let connection_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let shutdown_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let server_token = std::sync::Arc::new(token);
 
     // 启动监控线程
     {
@@ -279,8 +352,9 @@ fn start_server() {
 
                 // 为客户端创建一个线程
                 let connection_count = connection_count.clone();
+                let server_token = server_token.clone();
                 std::thread::spawn(move || {
-                    handle_client(stream);
+                    handle_client(stream, &server_token);
                     // 连接关闭时减少连接数
                     let count = connection_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                     println!("客户端连接已关闭，当前连接数: {}", count - 1);
