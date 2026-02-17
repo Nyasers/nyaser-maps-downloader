@@ -98,14 +98,42 @@ pub fn restart_as_admin() -> Result<(), String> {
     if let Ok(exe_path) = std::env::current_exe() {
         log_debug!("当前可执行文件路径: {:?}", exe_path);
         if let Some(exe_path_str) = exe_path.to_str() {
+            // 获取原始命令行参数
+            let args: Vec<String> = std::env::args().collect();
+            let mut args_list = Vec::new();
+
+            // 跳过第一个参数（可执行文件路径），处理其余参数
+            for arg in args.iter().skip(1) {
+                // 对参数进行PowerShell转义处理
+                // 1. 替换单引号为 ''
+                // 2. 用单引号包围整个参数
+                let escaped_arg = format!("'{}'", arg.replace("'", "''"));
+                args_list.push(escaped_arg);
+            }
+
+            // 构建参数字符串
+            let args_str = args_list.join(", ");
+
             // 构建重启命令
             let mut cmd = Command::new("powershell");
             let msg = "您的系统需要管理员权限以创建符号链接。\n获取管理员权限失败，无法启动应用。";
+            let err_handler = format!("if (!$?) {{ Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('{}', 'Nyaser Maps Downloader', 0, 16) }}", msg);
 
-            cmd.arg("-Command").arg(format!(
-                "Start-Process '{}' -Verb RunAs; if (!$?) {{ Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('{}', 'Nyaser Maps Downloader', 0, 16) }}",
-                exe_path_str, msg
-            ));
+            // 根据是否有参数构建不同的命令
+            let powershell_command = if args_str.trim().is_empty() {
+                // 无参数情况
+                format!("Start-Process '{}' -Verb RunAs", exe_path_str)
+            } else {
+                // 有参数情况
+                format!(
+                    "Start-Process '{}' -ArgumentList @({}) -Verb RunAs",
+                    exe_path_str,
+                    args_str.trim()
+                )
+            };
+
+            cmd.arg("-Command")
+                .arg(format!("{}; {}", powershell_command, err_handler));
 
             // 执行命令
             if let Err(e) = cmd.spawn() {
