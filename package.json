@@ -1,7 +1,7 @@
 {
   "name": "nyaser-maps-downloader",
   "displayName": "Nyaser Maps Downloader",
-  "version": "2.9.3",
+  "version": "3.0.0",
   "type": "module",
   "private": true,
   "scripts": {
