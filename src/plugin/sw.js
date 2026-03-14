@@ -28,6 +28,8 @@ const processUpdateQueue = () => {
           cache.put(request, clonedResponse);
         });
       }
+    }).catch((error) => {
+      console.error('缓存更新失败:', error);
     });
   });
 };
@@ -105,6 +107,6 @@ self.addEventListener("fetch", (event) => {
       }),
     );
   }
-  // 在任何请求被发起时都重置计数器
+  // 在任何请求被发起时都重置计时器
   resetIdleTimer();
 });
