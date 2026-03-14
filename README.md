@@ -106,8 +106,9 @@ nyaser-maps-downloader/
 │   │   └── main.js
 │   ├── plugin/         # 插件注入模块
 │   │   ├── main.css
-│   │   ├── main.html
-│   │   └── main.js
+│   │   ├── main.js
+│   │   ├── entry.js     # 入口脚本
+│   │   └── sw.js        # 服务工作者脚本
 │   └── serverlist/      # 服务器列表模块
 │       ├── list.json
 │       ├── main.css
@@ -132,6 +133,7 @@ nyaser-maps-downloader/
 │   │   ├── dir_manager.rs     # 目录管理模块
 │   │   ├── download_manager.rs # 下载队列和任务管理
 │   │   ├── extract_manager.rs # 解压管理器，处理下载文件的自动解压
+│   │   ├── helper.rs          # 辅助进程模块，处理符号链接权限问题
 │   │   ├── init.rs            # 应用初始化逻辑
 │   │   ├── lib.rs             # 库入口文件
 │   │   ├── log_utils.rs       # 日志工具函数
