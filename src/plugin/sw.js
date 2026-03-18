@@ -19,8 +19,8 @@ const processUpdateQueue = () => {
     : // 直接返回当前promise或创建新的promise
       (processUpdateQueue.p ??= (async () => {
         // 从队列中取出第一个请求并移除
-        const request = updateQueue.values().next().value;
-        updateQueue.delete(request.url);
+        const [key, request] = updateQueue.entries().next().value;
+        updateQueue.delete(key);
 
         // 发起请求并处理
         try {
