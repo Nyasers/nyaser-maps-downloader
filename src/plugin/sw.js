@@ -19,26 +19,22 @@ const processUpdateQueue = () => {
     : // 直接返回当前promise或创建新的promise
       (processUpdateQueue.p ??= (async () => {
         // 从队列中取出第一个请求并移除
-        const [key, request] = updateQueue.entries().next().value;
+        let it = updateQueue.entries().next();
+        if (!it) return;
+
+        const [key, request] = it.value;
         updateQueue.delete(key);
 
         // 发起请求并处理
-        try {
-          const networkResponse = await fetch(request);
-          // 只有当响应有效时才更新缓存
-          if (networkResponse && networkResponse.ok) {
-            // 先克隆响应对象，然后再使用
-            const clonedResponse = networkResponse.clone();
-            const cache = await caches.open(CACHE_NAME);
-            await cache.put(request, clonedResponse);
-          }
-        } catch (error) {
-          console.error("缓存更新失败:", error);
-        } finally {
-          // 清除当前promise
-          delete processUpdateQueue.p;
-        }
-      })());
+        const networkResponse = await fetch(request);
+        // 只有当响应有效时才更新缓存
+        if (networkResponse.ok) {
+          // 先克隆响应对象，然后再使用
+          const clonedResponse = networkResponse.clone();
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(request, clonedResponse);
+        } else throw new Error(networkResponse.statusText);
+      })().finally(() => delete processUpdateQueue.p));
 };
 
 /**
