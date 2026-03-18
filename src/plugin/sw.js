@@ -10,28 +10,35 @@ const IDLE_TIMEOUT = 1e4;
 
 /**
  * 处理缓存更新队列
- * 遍历队列中的请求，发起网络请求并更新缓存
+ * 每次从队列中取一个请求处理，使用函数属性保存promise防止并发
+ * @returns {Promise} 当前正在处理的promise或新发起的promise
  */
 const processUpdateQueue = () => {
-  // 复制队列内容并清空队列
-  const requests = [...updateQueue.values()];
-  updateQueue.clear();
+  return updateQueue.size === 0
+    ? Promise.resolve() // 如果队列为空，返回已完成的promise
+    : // 直接返回当前promise或创建新的promise
+      (processUpdateQueue.p ??= (async () => {
+        // 从队列中取出第一个请求并移除
+        const request = updateQueue.values().next().value;
+        updateQueue.delete(request.url);
 
-  // 处理每个请求
-  requests.forEach((request) => {
-    fetch(request).then((networkResponse) => {
-      // 只有当响应有效时才更新缓存
-      if (networkResponse && networkResponse.ok) {
-        // 先克隆响应对象，然后再使用
-        const clonedResponse = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(request, clonedResponse);
-        });
-      }
-    }).catch((error) => {
-      console.error('缓存更新失败:', error);
-    });
-  });
+        // 发起请求并处理
+        try {
+          const networkResponse = await fetch(request);
+          // 只有当响应有效时才更新缓存
+          if (networkResponse && networkResponse.ok) {
+            // 先克隆响应对象，然后再使用
+            const clonedResponse = networkResponse.clone();
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(request, clonedResponse);
+          }
+        } catch (error) {
+          console.error("缓存更新失败:", error);
+        } finally {
+          // 清除当前promise
+          delete processUpdateQueue.p;
+        }
+      })());
 };
 
 /**
@@ -47,7 +54,15 @@ const resetIdleTimer = () => {
   // 如果队列不为空，设置新的计时器
   if (updateQueue.size > 0) {
     idleTimer = setTimeout(() => {
-      processUpdateQueue();
+      idleTimer = null;
+      // 处理队列中的所有请求
+      const processQueue = () => {
+        if (updateQueue.size > 0 && !idleTimer) {
+          // 当前请求处理完成后，继续处理下一个
+          processUpdateQueue().then(() => processQueue());
+        }
+      };
+      processQueue();
     }, IDLE_TIMEOUT);
   }
 };
