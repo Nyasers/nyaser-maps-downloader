@@ -20,7 +20,7 @@ const processUpdateQueue = () => {
       (processUpdateQueue.p ??= (async () => {
         // 从队列中取出第一个请求并移除
         let it = updateQueue.entries().next();
-        if (!it) return;
+        if (it.done) return;
 
         const [key, request] = it.value;
         updateQueue.delete(key);
