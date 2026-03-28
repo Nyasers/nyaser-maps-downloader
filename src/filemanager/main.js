@@ -13,6 +13,8 @@ let currentFilters = {
   category: "all",
   mountStatus: "all",
   search: "",
+  sort: "default",
+  sortOrder: "asc", // asc 升序, desc 降序
 };
 
 /**
@@ -39,15 +41,63 @@ function sortGroupElements(container) {
       return scoreA - scoreB;
     }
 
+    // 根据当前排序选择进行排序
+    switch (currentFilters.sort) {
+      case "fileCount":
+        // 按文件数量排序
+        const countA = parseInt(a.dataset.fileCount) || 0;
+        const countB = parseInt(b.dataset.fileCount) || 0;
+        if (countA !== countB) {
+          return currentFilters.sortOrder === "asc"
+            ? countA - countB
+            : countB - countA;
+        }
+        break;
+      case "fileSize":
+        // 按文件大小排序
+        const sizeA = parseFloat(a.dataset.totalSize) || 0;
+        const sizeB = parseFloat(b.dataset.totalSize) || 0;
+        if (sizeA !== sizeB) {
+          return currentFilters.sortOrder === "asc"
+            ? sizeA - sizeB
+            : sizeB - sizeA;
+        }
+        break;
+      case "lastUpdated":
+        // 按修改时间排序
+        const timeA = a.dataset.lastUpdated || "";
+        const timeB = b.dataset.lastUpdated || "";
+        if (timeA !== timeB) {
+          // 处理"未知"情况
+          if (timeA === "未知")
+            return currentFilters.sortOrder === "asc" ? -1 : 1;
+          if (timeB === "未知")
+            return currentFilters.sortOrder === "asc" ? 1 : -1;
+          // 比较日期字符串
+          return currentFilters.sortOrder === "asc"
+            ? timeA.localeCompare(timeB)
+            : timeB.localeCompare(timeA);
+        }
+        break;
+    }
+
+    // 默认排序逻辑
     const typeA = a.dataset.category || "unsorted";
     const typeB = b.dataset.category || "unsorted";
 
     if (typeA !== typeB) {
-      return typeA.localeCompare(typeB);
+      const categoryCompare = typeA.localeCompare(typeB);
+      return currentFilters.sortOrder === "asc"
+        ? categoryCompare
+        : -categoryCompare;
     }
 
     // 分类相同则按清理后的名称排序
-    return naturalSortCompare(a.dataset.cleanName, b.dataset.cleanName);
+    const nameCompare = naturalSortCompare(
+      a.dataset.cleanName,
+      b.dataset.cleanName,
+    );
+    return currentFilters.sortOrder === "asc" ? nameCompare : -nameCompare;
   });
 
   // 重新排列 DOM 元素
@@ -259,6 +309,9 @@ async function loadFileList(clearMode = 0) {
             }
             newGroupElement.dataset.category = group.category;
             newGroupElement.dataset.cleanName = group.cleanName;
+            newGroupElement.dataset.fileCount = files.length;
+            newGroupElement.dataset.totalSize = totalSize;
+            newGroupElement.dataset.lastUpdated = latestUpdated;
             fileListElement.appendChild(newGroupElement);
           } else {
             // 分组已存在，更新内容
@@ -328,6 +381,9 @@ async function loadFileList(clearMode = 0) {
             }
             groupItem.dataset.category = group.category;
             groupItem.dataset.cleanName = group.cleanName;
+            groupItem.dataset.fileCount = files.length;
+            groupItem.dataset.totalSize = totalSize;
+            groupItem.dataset.lastUpdated = latestUpdated;
           }
         }
       });
@@ -413,10 +469,34 @@ function applyFilters() {
   currentFilters.category = document.getElementById("categoryFilter").value;
   currentFilters.mountStatus =
     document.getElementById("mountStatusFilter").value;
-  currentFilters.search = document
+  const searchValue = document
     .getElementById("searchBox")
     .value.trim()
     .toLowerCase();
+
+  // 显示/隐藏排序控件和标签
+  const sortFilterGroup = document.querySelector(
+    ".filter-group:has(#sortFilter)",
+  );
+  if (sortFilterGroup) {
+    if (searchValue) {
+      // 有搜索内容时隐藏排序控件和标签
+      sortFilterGroup.style.display = "none";
+      // 重置为默认排序和升序
+      currentFilters.sort = "default";
+      currentFilters.sortOrder = "asc";
+      // 重置排序选择器和按钮
+      document.getElementById("sortFilter").value = "default";
+      document.getElementById("sortOrderBtn").textContent = "↑";
+    } else {
+      // 无搜索内容时显示排序控件和标签
+      sortFilterGroup.style.display = "flex";
+      // 获取排序选择器的值
+      currentFilters.sort = document.getElementById("sortFilter").value;
+    }
+  }
+
+  currentFilters.search = searchValue;
   loadFileList();
 }
 
@@ -1016,6 +1096,24 @@ async function changeDataDir() {
 
   // 搜索框事件
   document.getElementById("searchBox").addEventListener("input", applyFilters);
+
+  // 排序选择事件
+  document
+    .getElementById("sortFilter")
+    .addEventListener("change", applyFilters);
+
+  // 排序顺序切换事件
+  document
+    .getElementById("sortOrderBtn")
+    .addEventListener("click", function () {
+      // 切换排序顺序
+      currentFilters.sortOrder =
+        currentFilters.sortOrder === "desc" ? "asc" : "desc";
+      // 更新按钮图标（修正箭头方向）
+      this.textContent = currentFilters.sortOrder === "asc" ? "↑" : "↓";
+      // 重新加载文件列表
+      loadFileList();
+    });
 
   // 批量挂载按钮事件
   document
