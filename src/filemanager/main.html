@@ -106,7 +106,9 @@
             <span class="category-indicator">{{category}}</span> ·
             {{displayGroupName}}
           </div>
-          <div class="group-stats">{{fileCount}} 个文件 · {{totalSize}}</div>
+          <div class="group-stats">
+            {{fileCount}} 个文件 · {{totalSize}} · {{lastUpdated}}
+          </div>
           <div class="group-actions">
             <button
               class="group-mount-btn {{groupMountBtnClass}}"

@@ -190,7 +190,8 @@ async function loadFileList(clearMode = 0) {
 
           if (!groupElement) {
             // 分组不存在，创建新的
-            let groupHtml = groupItemTemplate
+            const lastUpdated = group.last_updated ? formatDate(group.last_updated) : "未知";
+          let groupHtml = groupItemTemplate
               .replace(/\{\{groupKey\}\}/g, groupKey)
               .replace(
                 /\{\{displayGroupName\}\}/g,
@@ -198,6 +199,7 @@ async function loadFileList(clearMode = 0) {
               )
               .replace(/\{\{fileCount\}\}/g, files.length)
               .replace(/\{\{totalSize\}\}/g, formatFileSize(totalSize))
+              .replace(/\{\{lastUpdated\}\}/g, lastUpdated)
               .replace(/\{\{category\}\}/g, group.category || "unsorted")
               .replace(/\{\{groupId\}\}/g, groupId)
               .replace(/\{\{groupMounted\}\}/g, groupMounted)
@@ -259,9 +261,10 @@ async function loadFileList(clearMode = 0) {
             // 更新分组统计信息
             const statsElement = groupItem.querySelector(".group-stats");
             if (statsElement) {
+              const lastUpdated = group.last_updated ? formatDate(group.last_updated) : "未知";
               statsElement.textContent = `${
                 files.length
-              } 个文件 · ${formatFileSize(totalSize)}`;
+              } 个文件 · ${formatFileSize(totalSize)} · ${lastUpdated}`;
             }
 
             // 更新挂载按钮
@@ -725,6 +728,18 @@ function formatFileSize(bytes) {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+// 格式化日期
+function formatDate(dateString) {
+  if (!dateString) return "未知";
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return "未知";
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
 }
 
 // 数据存储目录管理
