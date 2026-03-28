@@ -271,7 +271,7 @@ async function loadFileList(clearMode = 0) {
               .forEach((file) => {
                 const isMounted = file.mounted || false;
                 const fileUpdated = file.updated
-                  ? formatDate(file.updated)
+                  ? formatDate(file.updated, true)
                   : "未知";
                 const fileHtml = fileItemTemplate
                   .replace(/\{\{groupKey\}\}/g, groupKey)
@@ -349,7 +349,7 @@ async function loadFileList(clearMode = 0) {
                 .forEach((file) => {
                   const isMounted = file.mounted || false;
                   const fileUpdated = file.updated
-                    ? formatDate(file.updated)
+                    ? formatDate(file.updated, true)
                     : "未知";
                   const fileHtml = fileItemTemplate
                     .replace(/\{\{groupKey\}\}/g, groupKey)
@@ -822,16 +822,25 @@ function formatFileSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-// 格式化日期
-function formatDate(dateString) {
+// 格式化日期时间
+// @param {string} dateString - 日期字符串
+// @param {boolean} includeTime - 是否包含时间
+// @returns {string} 格式化后的日期时间字符串
+function formatDate(dateString, includeTime = false) {
   if (!dateString) return "未知";
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return "未知";
-  return date.toLocaleString("zh-CN", {
+  const options = {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  });
+  };
+  if (includeTime) {
+    options.hour = "2-digit";
+    options.minute = "2-digit";
+    options.second = "2-digit";
+  }
+  return date.toLocaleString("zh-CN", options);
 }
 
 // 获取分组的最新更新时间
