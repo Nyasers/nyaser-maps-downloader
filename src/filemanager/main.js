@@ -830,19 +830,16 @@ function formatDate(dateString, includeTime = false) {
   if (!dateString) return "未知";
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return "未知";
-  return date.toLocaleString(
-    "zh-CN",
-    {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    } &
-      (includeTime && {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      }),
-  );
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    ...(includeTime && {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
+  });
 }
 
 // 获取分组的最新更新时间
