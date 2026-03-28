@@ -179,31 +179,7 @@ async function loadFileList(clearMode = 0) {
           const totalSize = files.reduce((sum, file) => sum + file.size, 0);
 
           // 计算分组最后更新时间（使用文件的最新更新时间）
-          let latestUpdated = "未知";
-          if (files.length > 0) {
-            // 收集所有有效的更新时间
-            const updatedTimes = files
-              .map((file) => {
-                // 确保 file.updated 是字符串类型
-                if (file.updated && typeof file.updated === "string") {
-                  return file.updated;
-                }
-                return null;
-              })
-              .filter(
-                (time) => time !== null && time !== undefined && time !== "",
-              );
-
-            if (updatedTimes.length > 0) {
-              // 按时间戳排序，取最新的
-              updatedTimes.sort((a, b) => {
-                const dateA = new Date(a);
-                const dateB = new Date(b);
-                return dateB - dateA;
-              });
-              latestUpdated = formatDate(updatedTimes[0]);
-            }
-          }
+          const latestUpdated = getGroupLatestUpdateTime(files);
 
           // 为分组生成唯一ID
           const groupId = `group-${encodeURIComponent(groupName).replace(
@@ -289,31 +265,7 @@ async function loadFileList(clearMode = 0) {
             const groupItem = groupElement.closest(".group-item");
 
             // 计算分组最后更新时间（使用文件的最新更新时间）
-            let latestUpdated = "未知";
-            if (files.length > 0) {
-              // 收集所有有效的更新时间
-              const updatedTimes = files
-                .map((file) => {
-                  // 确保 file.updated 是字符串类型
-                  if (file.updated && typeof file.updated === "string") {
-                    return file.updated;
-                  }
-                  return null;
-                })
-                .filter(
-                  (time) => time !== null && time !== undefined && time !== "",
-                );
-
-              if (updatedTimes.length > 0) {
-                // 按时间戳排序，取最新的
-                updatedTimes.sort((a, b) => {
-                  const dateA = new Date(a);
-                  const dateB = new Date(b);
-                  return dateB - dateA;
-                });
-                latestUpdated = formatDate(updatedTimes[0]);
-              }
-            }
+            const latestUpdated = getGroupLatestUpdateTime(files);
 
             // 更新分组统计信息
             const statsElement = groupItem.querySelector(".group-stats");
@@ -800,6 +752,34 @@ function formatDate(dateString) {
     month: "2-digit",
     day: "2-digit",
   });
+}
+
+// 获取分组的最新更新时间
+function getGroupLatestUpdateTime(files) {
+  let latestUpdated = "未知";
+  if (files.length > 0) {
+    // 收集所有有效的更新时间
+    const updatedTimes = files
+      .map((file) => {
+        // 确保 file.updated 是字符串类型
+        if (file.updated && typeof file.updated === "string") {
+          return file.updated;
+        }
+        return null;
+      })
+      .filter((time) => time !== null && time !== undefined && time !== "");
+
+    if (updatedTimes.length > 0) {
+      // 按时间戳排序，取最新的
+      updatedTimes.sort((a, b) => {
+        const dateA = new Date(a);
+        const dateB = new Date(b);
+        return dateB - dateA;
+      });
+      latestUpdated = formatDate(updatedTimes[0]);
+    }
+  }
+  return latestUpdated;
 }
 
 // 数据存储目录管理

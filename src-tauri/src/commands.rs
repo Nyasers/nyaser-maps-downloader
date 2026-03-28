@@ -272,8 +272,8 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
                                                                             dur.subsec_nanos(),
                                                                         )
                                                                         .map(|dt| dt.with_timezone(&Utc))
-                                                                        .or_else(|| Some(Utc::now()));
-                                                                        dt.map(|d| d.to_string())
+                                                                        .unwrap_or_else(|| Utc::now());
+                                                                        Some(dt.to_string())
                                                                     })
                                                             });
 
