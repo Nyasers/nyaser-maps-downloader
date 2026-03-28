@@ -830,17 +830,23 @@ function formatDate(dateString, includeTime = false) {
   if (!dateString) return "未知";
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return "未知";
-  const options = {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  };
-  if (includeTime) {
-    options.hour = "2-digit";
-    options.minute = "2-digit";
-    options.second = "2-digit";
-  }
-  return date.toLocaleString("zh-CN", options);
+  return date.toLocaleString(
+    "zh-CN",
+    Object.assign(
+      {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      },
+      includeTime
+        ? {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          }
+        : {},
+    ),
+  );
 }
 
 // 获取分组的最新更新时间
