@@ -198,7 +198,6 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
                                 let folder_name_str = folder_name.to_string_lossy().to_string();
 
                                 // 读取子文件夹中的所有文件
-                                let mut latest_modified = None;
                                 let files = match std::fs::read_dir(&path) {
                                     Ok(file_entries) => {
                                         let mut file_list = Vec::new();
@@ -243,20 +242,6 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
                                                                     }
                                                                 };
 
-                                                            // 更新最新修改时间
-                                                            if let Some(time) = modified_time {
-                                                                if let Some(current_latest) =
-                                                                    latest_modified
-                                                                {
-                                                                    if time > current_latest {
-                                                                        latest_modified =
-                                                                            Some(time);
-                                                                    }
-                                                                } else {
-                                                                    latest_modified = Some(time);
-                                                                }
-                                                            }
-
                                                             // 计算文件路径的哈希值（使用相对路径：组/文件）
                                                             let relative_path = format!(
                                                                 "{}/{}",
@@ -275,12 +260,30 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
                                                                 addons_dir.join(&link_name);
                                                             let is_mounted = link_path.exists();
 
+                                                            // 转换文件修改时间为ISO 8601格式字符串
+                                                            let updated = modified_time.and_then(|time| {
+                                                                time.duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                                                    .ok()
+                                                                    .and_then(|dur| {
+                                                                        use chrono::DateTime;
+                                                                        use chrono::Utc;
+                                                                        let dt = DateTime::from_timestamp(
+                                                                            dur.as_secs() as i64,
+                                                                            dur.subsec_nanos(),
+                                                                        )
+                                                                        .map(|dt| dt.with_timezone(&Utc))
+                                                                        .or_else(|| Some(Utc::now()));
+                                                                        dt.map(|d| d.to_string())
+                                                                    })
+                                                            });
+
                                                             // 添加到文件列表
                                                             file_list.push(serde_json::json!({
                                                                 "name": file_name_str,
                                                                 "size": size,
                                                                 "mounted": is_mounted,
-                                                                "link_name": link_name
+                                                                "link_name": link_name,
+                                                                "updated": updated
                                                             }));
                                                         }
                                                     }
@@ -300,23 +303,6 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
                                     }
                                 };
 
-                                // 转换最新修改时间为ISO 8601格式字符串
-                                let last_updated = latest_modified.and_then(|time| {
-                                    time.duration_since(std::time::SystemTime::UNIX_EPOCH)
-                                        .ok()
-                                        .and_then(|dur| {
-                                            use chrono::DateTime;
-                                            use chrono::Utc;
-                                            let dt = DateTime::from_timestamp(
-                                                dur.as_secs() as i64,
-                                                dur.subsec_nanos(),
-                                            )
-                                            .map(|dt| dt.with_timezone(&Utc))
-                                            .or_else(|| Some(Utc::now()));
-                                            dt.map(|d| d.to_string())
-                                        })
-                                });
-
                                 // 如果文件夹中有文件，添加到分组列表
                                 if !files.is_empty() {
                                     // 检查组是否已挂载（所有文件都已挂载）
@@ -327,8 +313,7 @@ pub fn get_maps(app_handle: AppHandle) -> Result<serde_json::Value, String> {
                                     group_list.push(serde_json::json!({
                                         "name": folder_name_str,
                                         "files": files,
-                                        "mounted": all_mounted,
-                                        "last_updated": last_updated
+                                        "mounted": all_mounted
                                     }));
                                 }
                             }

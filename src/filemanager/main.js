@@ -178,6 +178,33 @@ async function loadFileList(clearMode = 0) {
           // 计算分组总大小
           const totalSize = files.reduce((sum, file) => sum + file.size, 0);
 
+          // 计算分组最后更新时间（使用文件的最新更新时间）
+          let latestUpdated = "未知";
+          if (files.length > 0) {
+            // 收集所有有效的更新时间
+            const updatedTimes = files
+              .map((file) => {
+                // 确保 file.updated 是字符串类型
+                if (file.updated && typeof file.updated === "string") {
+                  return file.updated;
+                }
+                return null;
+              })
+              .filter(
+                (time) => time !== null && time !== undefined && time !== "",
+              );
+
+            if (updatedTimes.length > 0) {
+              // 按时间戳排序，取最新的
+              updatedTimes.sort((a, b) => {
+                const dateA = new Date(a);
+                const dateB = new Date(b);
+                return dateB - dateA;
+              });
+              latestUpdated = formatDate(updatedTimes[0]);
+            }
+          }
+
           // 为分组生成唯一ID
           const groupId = `group-${encodeURIComponent(groupName).replace(
             /[^a-zA-Z0-9]/g,
@@ -190,8 +217,7 @@ async function loadFileList(clearMode = 0) {
 
           if (!groupElement) {
             // 分组不存在，创建新的
-            const lastUpdated = group.last_updated ? formatDate(group.last_updated) : "未知";
-          let groupHtml = groupItemTemplate
+            let groupHtml = groupItemTemplate
               .replace(/\{\{groupKey\}\}/g, groupKey)
               .replace(
                 /\{\{displayGroupName\}\}/g,
@@ -199,7 +225,7 @@ async function loadFileList(clearMode = 0) {
               )
               .replace(/\{\{fileCount\}\}/g, files.length)
               .replace(/\{\{totalSize\}\}/g, formatFileSize(totalSize))
-              .replace(/\{\{lastUpdated\}\}/g, lastUpdated)
+              .replace(/\{\{lastUpdated\}\}/g, latestUpdated)
               .replace(/\{\{category\}\}/g, group.category || "unsorted")
               .replace(/\{\{groupId\}\}/g, groupId)
               .replace(/\{\{groupMounted\}\}/g, groupMounted)
@@ -218,11 +244,15 @@ async function loadFileList(clearMode = 0) {
               .sort((a, b) => naturalSortCompare(a.name, b.name))
               .forEach((file) => {
                 const isMounted = file.mounted || false;
+                const fileUpdated = file.updated
+                  ? formatDate(file.updated)
+                  : "未知";
                 const fileHtml = fileItemTemplate
                   .replace(/\{\{groupKey\}\}/g, groupKey)
                   .replace(/\{\{displayName\}\}/g, file.name)
                   .replace(/\{\{fileName\}\}/g, file.name)
                   .replace(/\{\{fileSize\}\}/g, formatFileSize(file.size))
+                  .replace(/\{\{fileUpdated\}\}/g, fileUpdated)
                   .replace(
                     /\{\{mountStatusClass\}\}/g,
                     isMounted ? "mounted" : "unmounted",
@@ -258,13 +288,39 @@ async function loadFileList(clearMode = 0) {
             // 分组已存在，更新内容
             const groupItem = groupElement.closest(".group-item");
 
+            // 计算分组最后更新时间（使用文件的最新更新时间）
+            let latestUpdated = "未知";
+            if (files.length > 0) {
+              // 收集所有有效的更新时间
+              const updatedTimes = files
+                .map((file) => {
+                  // 确保 file.updated 是字符串类型
+                  if (file.updated && typeof file.updated === "string") {
+                    return file.updated;
+                  }
+                  return null;
+                })
+                .filter(
+                  (time) => time !== null && time !== undefined && time !== "",
+                );
+
+              if (updatedTimes.length > 0) {
+                // 按时间戳排序，取最新的
+                updatedTimes.sort((a, b) => {
+                  const dateA = new Date(a);
+                  const dateB = new Date(b);
+                  return dateB - dateA;
+                });
+                latestUpdated = formatDate(updatedTimes[0]);
+              }
+            }
+
             // 更新分组统计信息
             const statsElement = groupItem.querySelector(".group-stats");
             if (statsElement) {
-              const lastUpdated = group.last_updated ? formatDate(group.last_updated) : "未知";
               statsElement.textContent = `${
                 files.length
-              } 个文件 · ${formatFileSize(totalSize)} · ${lastUpdated}`;
+              } 个文件 · ${formatFileSize(totalSize)} · ${latestUpdated}`;
             }
 
             // 更新挂载按钮
@@ -287,11 +343,15 @@ async function loadFileList(clearMode = 0) {
                 .sort((a, b) => naturalSortCompare(a.name, b.name))
                 .forEach((file) => {
                   const isMounted = file.mounted || false;
+                  const fileUpdated = file.updated
+                    ? formatDate(file.updated)
+                    : "未知";
                   const fileHtml = fileItemTemplate
                     .replace(/\{\{groupKey\}\}/g, groupKey)
                     .replace(/\{\{displayName\}\}/g, file.name)
                     .replace(/\{\{fileName\}\}/g, file.name)
                     .replace(/\{\{fileSize\}\}/g, formatFileSize(file.size))
+                    .replace(/\{\{fileUpdated\}\}/g, fileUpdated)
                     .replace(
                       /\{\{mountStatusClass\}\}/g,
                       isMounted ? "mounted" : "unmounted",
@@ -735,10 +795,10 @@ function formatDate(dateString) {
   if (!dateString) return "未知";
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return "未知";
-  return date.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   });
 }
 
