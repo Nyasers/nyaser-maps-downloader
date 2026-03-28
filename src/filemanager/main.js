@@ -832,20 +832,16 @@ function formatDate(dateString, includeTime = false) {
   if (isNaN(date.getTime())) return "未知";
   return date.toLocaleString(
     "zh-CN",
-    Object.assign(
-      {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      },
-      includeTime
-        ? {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-          }
-        : {},
-    ),
+    {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    } &
+      (includeTime && {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
   );
 }
 
