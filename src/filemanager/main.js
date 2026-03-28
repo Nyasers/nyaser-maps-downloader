@@ -220,7 +220,9 @@ async function loadFileList(clearMode = 0) {
               .sort((a, b) => naturalSortCompare(a.name, b.name))
               .forEach((file) => {
                 const isMounted = file.mounted || false;
-                const fileUpdated = file.updated && file.updated !== null && file.updated !== undefined && file.updated !== '' ? formatDate(file.updated) : "未知";
+                const fileUpdated = file.updated
+                  ? formatDate(file.updated)
+                  : "未知";
                 const fileHtml = fileItemTemplate
                   .replace(/\{\{groupKey\}\}/g, groupKey)
                   .replace(/\{\{displayName\}\}/g, file.name)
@@ -293,7 +295,9 @@ async function loadFileList(clearMode = 0) {
                 .sort((a, b) => naturalSortCompare(a.name, b.name))
                 .forEach((file) => {
                   const isMounted = file.mounted || false;
-                  const fileUpdated = file.updated && file.updated !== null && file.updated !== undefined && file.updated !== '' ? formatDate(file.updated) : "未知";
+                  const fileUpdated = file.updated
+                    ? formatDate(file.updated)
+                    : "未知";
                   const fileHtml = fileItemTemplate
                     .replace(/\{\{groupKey\}\}/g, groupKey)
                     .replace(/\{\{displayName\}\}/g, file.name)
