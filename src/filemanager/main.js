@@ -855,7 +855,7 @@ function getGroupLatestUpdateTime(files) {
         }
         return null;
       })
-      .filter(Boolean);
+      .filter((e) => e);
 
     if (updatedTimes.length > 0) {
       // 按时间戳排序，取最新的
