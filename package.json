@@ -7,7 +7,7 @@
   "scripts": {
     "check": "npm run pretauri && pushd src-tauri && cargo check",
     "build": "set NODE_ENV=production && npm run tauri:win build",
-    "build:assets": "npm run version:sync && node minify.js && node lib-copy.js",
+    "build:assets": "npm run version:sync && node minify.js",
     "build:clean": "del src-tauri\\assets\\plugin\\entry.js && del src-tauri\\assets\\plugin\\sw.js",
     "predev": "pushd src-tauri && cargo build --bin helper",
     "dev": "set NODE_ENV=development && npm run tauri:win dev",
