@@ -1,6 +1,19 @@
 const getAssets = (asset) =>
   decodeURIComponent(window.__TAURI__.core.convertFileSrc(asset, "asset"));
 
+/**
+ * 获取服务器图标占位符
+ * @param {object} icon - 服务器图标（对象或字符串）
+ * @returns {string} 图标占位符
+ */
+function getIconPlaceholder(icon) {
+  return icon.placeholder || "🌐";
+}
+
+/**
+ * 渲染服务器列表
+ * @param {Array} servers - 服务器列表数据
+ */
 function renderServerList(servers) {
   const serverList = document.getElementById("serverList");
   const template = document.getElementById("serverItemTemplate");
@@ -17,7 +30,32 @@ function renderServerList(servers) {
     const serverItem = clone.querySelector(".server-item");
 
     serverItem.setAttribute("data-url", server.url);
-    serverItem.querySelector(".server-icon").textContent = server.icon || "🌐";
+
+    // 尝试加载服务器图标
+    const serverIcon = serverItem.querySelector(".server-icon");
+    serverIcon.textContent = getIconPlaceholder(server.icon);
+    try {
+      const hostname = new URL(server.url).hostname;
+
+      // 检查是否有指定的图标文件名
+      if (server.icon?.filename) {
+        const iconPath = `serverlist/icons/${hostname}/${server.icon.filename}`;
+
+        // 创建img元素来加载图标
+        const img = document.createElement("img");
+        img.src = getAssets(iconPath);
+        img.alt = server.name;
+        img.style.width = "100%";
+        img.style.height = "100%";
+
+        // 图标加载成功时替换文本
+        img.onload = () => {
+          serverIcon.textContent = "";
+          serverIcon.appendChild(img);
+        };
+      }
+    } catch (e) {}
+
     serverItem.querySelector(".server-name").textContent = server.name;
     serverItem.querySelector(".server-url").textContent = server.url;
 
@@ -35,6 +73,12 @@ function renderServerList(servers) {
   });
 }
 
+/**
+ * 打开服务器窗口
+ * @param {string} url - 服务器URL
+ * @param {string} name - 服务器名称
+ * @param {object|string} icon - 服务器图标（对象或字符串）
+ */
 async function openServerWindow(url, name, icon) {
   try {
     const {
@@ -46,10 +90,13 @@ async function openServerWindow(url, name, icon) {
 
     const parentWindow = await getCurrentWebviewWindow();
 
+    // 处理图标格式，获取占位符
+    const iconPlaceholder = getIconPlaceholder(icon);
+
     // 获取父窗口的位置和大小
     let windowOptions = {
       url: url,
-      title: `${name} ${icon || ""}`,
+      title: `${name} ${iconPlaceholder}`,
       width: 1024,
       height: 768,
       parent: "serverlist",

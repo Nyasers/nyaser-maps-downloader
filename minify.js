@@ -35,8 +35,8 @@ function getEnvironmentMode() {
   return mode.toLowerCase();
 }
 
-// 递归获取目录下所有特定扩展名的文件
-function getAllFilesByExtension(dir, extensions) {
+// 递归获取目录下所有文件，排除指定扩展名
+function getAllFilesExcept(dir, excludeExtensions = []) {
   let results = [];
   const list = readdirSync(dir);
 
@@ -46,8 +46,8 @@ function getAllFilesByExtension(dir, extensions) {
 
     if (stat.isDirectory()) {
       // 递归处理子目录
-      results = results.concat(getAllFilesByExtension(filePath, extensions));
-    } else if (extensions.some((ext) => file.endsWith(ext))) {
+      results = results.concat(getAllFilesExcept(filePath, excludeExtensions));
+    } else if (!excludeExtensions.some((ext) => file.endsWith(ext))) {
       results.push(filePath);
     }
   });
@@ -55,17 +55,42 @@ function getAllFilesByExtension(dir, extensions) {
   return results;
 }
 
-// 获取所有HTML文件
-const htmlFiles = getAllFilesByExtension(srcDir, [".html"]);
+// 获取所有文件（默认不排除任何文件）
+const allFiles = getAllFilesExcept(srcDir);
 
-// 获取所有JavaScript文件
-const jsFiles = getAllFilesByExtension(srcDir, [".js"]);
+// 定义文件类型映射
+const fileTypes = {
+  html: ".html",
+  js: ".js",
+  css: ".css",
+  json: ".json",
+};
 
-// 获取所有CSS文件
-const cssFiles = getAllFilesByExtension(srcDir, [".css"]);
+// 生成需要排除的文本文件扩展名数组
+const textFileExtensions = Object.values(fileTypes);
 
-// 获取所有JSON文件
-const jsonFiles = getAllFilesByExtension(srcDir, [".json"]);
+// 按文件类型分类
+const htmlFiles = allFiles.filter((file) => file.endsWith(fileTypes.html));
+const jsFiles = allFiles.filter((file) => file.endsWith(fileTypes.js));
+const cssFiles = allFiles.filter((file) => file.endsWith(fileTypes.css));
+const jsonFiles = allFiles.filter((file) => file.endsWith(fileTypes.json));
+
+// 使用完全的exclude模式处理资产文件：排除所有不需要的文件类型
+const assetFiles = allFiles.filter((file) => {
+  // 排除所有文本文件
+  const isTextFile = textFileExtensions.some((ext) => file.endsWith(ext));
+  if (isTextFile) return false;
+
+  // 排除其他不需要的文件类型（如果有）
+  const otherExcludedExtensions = []; // 可以在这里添加其他需要排除的文件类型
+  const isOtherExcludedFile = otherExcludedExtensions.some((ext) =>
+    file.endsWith(ext),
+  );
+  if (isOtherExcludedFile) return false;
+
+  // 保留所有剩余文件（作为资产文件）
+  return true;
+});
 
 // 生成压缩后的文件路径
 function generateOutputPath(inputPath) {
@@ -381,9 +406,31 @@ async function minifyFiles() {
         ? ((1 - totalMinifiedSize / totalOriginalSize) * 100).toFixed(2)
         : "0.00";
 
+    // 处理图标和其他资源文件
+    for (const file of assetFiles) {
+      try {
+        // 复制资源文件（不需要压缩）
+        const outputPath = generateOutputPath(file);
+        const content = readFileSafely(file, null); // 使用null编码以二进制模式读取
+        writeFileSafely(outputPath, content, null); // 以二进制模式写入
+
+        // 打印复制结果
+        const relativeFilePath = path.relative(srcDir, file);
+        const relativeOutputPath = path.relative(assetsPath, outputPath);
+        console.log(`✅ 已复制: ${relativeFilePath}`);
+        console.log(`   🎯 输出到: ${relativeOutputPath}`);
+
+        results.push({ file, success: true, outputPath });
+      } catch (error) {
+        const relativeFilePath = path.relative(srcDir, file);
+        console.error(`❌ 复制文件失败: ${relativeFilePath}`, error.message);
+        results.push({ file, success: false, error: error.message });
+      }
+    }
+
     console.log("\n========== 压缩统计摘要 ==========");
     console.log(`📂 总文件数: ${results.length}`);
-    console.log(`⚡ 压缩文件数: ${results.filter((r) => r.success).length}`);
+    console.log(`⚡ 处理文件数: ${results.filter((r) => r.success).length}`);
     console.log(`📊 总原始大小: ${formatFileSize(totalOriginalSize)}`);
     console.log(`📊 总压缩大小: ${formatFileSize(totalMinifiedSize)}`);
     console.log(`💰 总共节省: ${formatFileSize(totalSavedSize)}`);

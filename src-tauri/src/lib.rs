@@ -11,6 +11,7 @@ use tauri::{
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_updater::UpdaterExt;
+use mime_guess;
 
 // 导入子模块
 mod aria2c;
@@ -78,17 +79,17 @@ pub fn get_assets_path(asset_path: &str) -> Result<PathBuf, String> {
 }
 
 // 自定义协议处理函数，用于处理asset://请求
+/// 获取文件的MIME类型
+///
+/// # 参数
+/// - `path`: 文件路径
+///
+/// # 返回值
+/// - 返回对应的MIME类型字符串
 fn get_content_type(path: &str) -> &'static str {
-    match path.split('.').last() {
-        Some("html") => "text/html",
-        Some("js") => "application/javascript",
-        Some("css") => "text/css",
-        Some("json") => "application/json",
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        _ => "text/plain",
-    }
+    mime_guess::from_path(path)
+        .first_raw()
+        .unwrap_or("text/plain")
 }
 
 fn build_response(content: Vec<u8>, content_type: &'static str) -> Response<Vec<u8>> {
