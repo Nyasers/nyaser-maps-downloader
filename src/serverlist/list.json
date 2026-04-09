@@ -14,7 +14,7 @@
     }
   },
   {
-    "name": "Anne 云服",
+    "name": "Anne云服",
     "url": "https://sb.trygek.com",
     "icon": {
       "filename": "favicon.ico"
@@ -22,7 +22,7 @@
   },
   {
     "name": "春风服务器",
-    "url": "https://cf.l4d.run",
+    "url": "https://cf.l4d.run/query/",
     "icon": {
       "placeholder": "🌸"
     }
