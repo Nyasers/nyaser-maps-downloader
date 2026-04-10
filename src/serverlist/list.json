@@ -2,36 +2,25 @@
   {
     "name": "Left 4 Tools",
     "url": "https://l4t.nyase.ru",
-    "icon": {
-      "placeholder": "𓃠"
-    }
+    "icon": "𓃠"
   },
   {
     "name": "KitaSoda",
     "url": "https://kitasoda.com",
-    "icon": {
-      "placeholder": "🧋"
-    }
+    "icon": "🧋"
   },
   {
     "name": "Anne云服",
-    "url": "https://sb.trygek.com",
-    "icon": {
-      "filename": "favicon.ico"
-    }
+    "url": "https://sb.trygek.com"
   },
   {
     "name": "春风服务器",
     "url": "https://cf.l4d.run/query/",
-    "icon": {
-      "placeholder": "🌸"
-    }
+    "icon": "🌸"
   },
   {
     "name": "ssdraid0",
     "url": "https://l4d2server.com",
-    "icon": {
-      "placeholder": "🍋"
-    }
+    "icon": "🍋"
   }
 ]

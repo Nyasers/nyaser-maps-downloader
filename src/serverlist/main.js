@@ -3,11 +3,11 @@ const getAssets = (asset) =>
 
 /**
  * 获取服务器图标占位符
- * @param {object} icon - 服务器图标（对象或字符串）
+ * @param {string} icon - 服务器图标（字符串）
  * @returns {string} 图标占位符
  */
 function getIconPlaceholder(icon) {
-  return icon.placeholder || "🌐";
+  return icon || "🌐";
 }
 
 /**
@@ -37,23 +37,21 @@ function renderServerList(servers) {
     try {
       const hostname = new URL(server.url).hostname;
 
-      // 检查是否有指定的图标文件名
-      if (server.icon?.filename) {
-        const iconPath = `serverlist/icons/${hostname}/${server.icon.filename}`;
+      // 从Bitwarden图标服务获取图标
+      const iconUrl = `https://icons.bitwarden.net/${hostname}/icon.png`;
 
-        // 创建img元素来加载图标
-        const img = document.createElement("img");
-        img.src = getAssets(iconPath);
-        img.alt = server.name;
-        img.style.width = "100%";
-        img.style.height = "100%";
+      // 创建img元素来加载图标
+      const img = document.createElement("img");
+      img.src = iconUrl;
+      img.alt = server.name;
+      img.style.width = "100%";
+      img.style.height = "100%";
 
-        // 图标加载成功时替换文本
-        img.onload = () => {
-          serverIcon.textContent = "";
-          serverIcon.appendChild(img);
-        };
-      }
+      // 图标加载成功时替换文本
+      img.onload = () => {
+        serverIcon.textContent = "";
+        serverIcon.appendChild(img);
+      };
     } catch (e) {}
 
     serverItem.querySelector(".server-name").textContent = server.name;
