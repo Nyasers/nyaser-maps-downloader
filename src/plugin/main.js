@@ -418,7 +418,7 @@
           const leftToolbar = document.querySelector("div.left-toolbar-in");
           if (leftToolbar) {
             const settings = document.querySelector(
-              "div.left-toolbar-in > svg:nth-child(3)",
+              "div.left-toolbar-in > svg:nth-child(2)",
             );
             if (settings) {
               // 创建工具栏按钮的函数
