@@ -34,25 +34,29 @@ function renderServerList(servers) {
     // 尝试加载服务器图标
     const serverIcon = serverItem.querySelector(".server-icon");
     serverIcon.textContent = getIconPlaceholder(server.icon);
-    try {
-      const hostname = new URL(server.url).hostname;
 
-      // 从Bitwarden图标服务获取图标
-      const iconUrl = `https://icons.bitwarden.net/${hostname}/icon.png`;
+    // 检查是否强制使用占位符
+    if (!server.iconOffline) {
+      try {
+        const hostname = new URL(server.url).hostname;
 
-      // 创建img元素来加载图标
-      const img = document.createElement("img");
-      img.src = iconUrl;
-      img.alt = server.name;
-      img.style.width = "100%";
-      img.style.height = "100%";
+        // 从Bitwarden图标服务获取图标
+        const iconUrl = `https://icons.bitwarden.net/${hostname}/icon.png`;
 
-      // 图标加载成功时替换文本
-      img.onload = () => {
-        serverIcon.textContent = "";
-        serverIcon.appendChild(img);
-      };
-    } catch (e) {}
+        // 创建img元素来加载图标
+        const img = document.createElement("img");
+        img.src = iconUrl;
+        img.alt = server.name;
+        img.style.width = "100%";
+        img.style.height = "100%";
+
+        // 图标加载成功时替换文本
+        img.onload = () => {
+          serverIcon.textContent = "";
+          serverIcon.appendChild(img);
+        };
+      } catch (e) {}
+    }
 
     serverItem.querySelector(".server-name").textContent = server.name;
     serverItem.querySelector(".server-url").textContent = server.url;

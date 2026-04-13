@@ -7,7 +7,8 @@
   {
     "name": "KitaSoda",
     "url": "https://kitasoda.com",
-    "icon": "🧋"
+    "icon": "🧋",
+    "iconOffline": true
   },
   {
     "name": "Anne云服",
