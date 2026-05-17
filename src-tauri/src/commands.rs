@@ -1456,7 +1456,7 @@ pub async fn open_server_window(
 
     let _ = window.show();
 
-    let app_handle_clone = app_handle.clone();
+    // let app_handle_clone = app_handle.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Destroyed = event {
             log_info!("服务器窗口已销毁");
