@@ -1382,8 +1382,14 @@ pub async fn open_server_window(
         
         if let Some(parent_window) = app_handle.get_webview_window("serverlist") {
             if let (Ok(pos), Ok(size)) = (parent_window.outer_position(), parent_window.inner_size()) {
-                let _ = existing_window.unminimize();
-                let _ = existing_window.unmaximize();
+                if let (Ok(minimized), Ok(maximized)) = (existing_window.is_minimized(), existing_window.is_maximized()) {
+                    if maximized {
+                        let _ = existing_window.unmaximize();
+                    }
+                    if minimized {
+                        let _ = existing_window.unminimize();
+                    }
+                }
                 let _ = existing_window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
                     x: pos.x,
                     y: pos.y,
