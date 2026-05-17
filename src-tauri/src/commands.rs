@@ -1343,6 +1343,129 @@ pub fn cleanup_invalid_links() -> Result<String, String> {
     Ok(result_message)
 }
 
+/// 打开服务器窗口
+///
+/// 此函数用于在主进程中打开一个新的服务器窗口，
+/// 替代在渲染进程中使用 Tauri's webviewWindow API 创建窗口的方式。
+///
+/// # 参数
+/// - `url`: 服务器URL地址
+/// - `name`: 服务器名称
+/// - `icon`: 服务器图标（占位符或空字符串）
+/// - `app_handle`: Tauri应用句柄，用于获取窗口实例和发送事件
+///
+/// # 返回值
+/// - 成功时返回包含成功信息的Ok
+/// - 失败时返回包含错误信息的Err
+#[tauri::command]
+pub async fn open_server_window(
+    url: String,
+    name: String,
+    icon: String,
+    app_handle: AppHandle,
+) -> Result<String, String> {
+    log_info!("接收到打开服务器窗口请求: URL={}, Name={}", url, name);
+
+    let window_label = format!(
+        "server_{}",
+        url.split("://")
+            .nth(1)
+            .unwrap_or(&url)
+            .split('/')
+            .next()
+            .unwrap_or("unknown")
+            .replace('.', "_")
+    );
+
+    if let Some(existing_window) = app_handle.get_webview_window(&window_label) {
+        log_info!("服务器窗口已存在，正在聚焦: {}", window_label);
+        
+        if let Some(parent_window) = app_handle.get_webview_window("serverlist") {
+            if let (Ok(pos), Ok(size)) = (parent_window.outer_position(), parent_window.inner_size()) {
+                let _ = existing_window.unminimize();
+                let _ = existing_window.unmaximize();
+                let _ = existing_window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                    x: pos.x,
+                    y: pos.y,
+                }));
+                let _ = existing_window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                    width: size.width,
+                    height: size.height,
+                }));
+                let _ = parent_window.hide();
+            }
+        }
+        
+        if let Err(e) = existing_window.set_focus() {
+            log_error!("聚焦窗口失败: {:?}", e);
+        }
+        return Ok(format!("窗口已聚焦: {}", window_label));
+    }
+
+    let icon_placeholder = if icon.is_empty() { "🌐" } else { &icon };
+
+    let parent_window = app_handle
+        .get_webview_window("serverlist")
+        .ok_or_else(|| {
+            log_error!("未找到服务器列表窗口");
+            "未找到服务器列表窗口".to_string()
+        })?;
+
+    let position_result = parent_window.outer_position();
+    let size_result = parent_window.inner_size();
+    let maximized_result = parent_window.is_maximized();
+
+    let window = tauri::WebviewWindowBuilder::new(
+        &app_handle,
+        &window_label,
+        tauri::WebviewUrl::External(url.parse().map_err(|e| {
+            log_error!("无效的URL: {:?}", e);
+            format!("无效的URL: {:?}", e)
+        })?),
+    )
+    .title(format!("{} {}", name, icon_placeholder))
+    .inner_size(1024.0, 768.0)
+    .visible(false)
+    .build()
+    .map_err(|e| {
+        log_error!("创建WebviewWindowBuilder失败: {:?}", e);
+        format!("创建窗口失败: {:?}", e)
+    })?;
+
+    if let (Ok(pos), Ok(size), Ok(is_maximized)) =
+        (position_result, size_result, maximized_result)
+    {
+        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+            x: pos.x,
+            y: pos.y,
+        }));
+        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+            width: size.width,
+            height: size.height,
+        }));
+        if is_maximized {
+            let _ = window.maximize();
+        }
+    }
+
+    let _ = window.show();
+
+    let app_handle_clone = app_handle.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            log_info!("服务器窗口已销毁");
+        }
+    });
+
+    parent_window.hide().map_err(|e| {
+        log_error!("隐藏父窗口失败: {:?}", e);
+        format!("隐藏父窗口失败: {:?}", e)
+    })?;
+
+    log_info!("服务器窗口已成功打开: {}", window_label);
+    Ok(format!("窗口已打开: {}", window_label))
+}
+
 /// 解压拖拽的压缩包文件
 ///
 /// 此函数用于处理用户拖拽到主窗口的压缩包文件，

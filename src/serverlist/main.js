@@ -83,58 +83,12 @@ function renderServerList(servers) {
  */
 async function openServerWindow(url, name, icon) {
   try {
-    const {
-      core: { invoke },
-      webviewWindow: { WebviewWindow, getCurrentWebviewWindow },
-    } = window.__TAURI__;
-
-    const windowLabel = `server_${new URL(url).hostname.replaceAll(".", "_")}`;
-
-    const parentWindow = await getCurrentWebviewWindow();
-
-    // 处理图标格式，获取占位符
+    const { core: { invoke } } = window.__TAURI__;
     const iconPlaceholder = getIconPlaceholder(icon);
-
-    // 获取父窗口的位置和大小
-    let windowOptions = {
+    await invoke("open_server_window", {
       url: url,
-      title: `${name} ${iconPlaceholder}`,
-      width: 1024,
-      height: 768,
-      parent: "serverlist",
-      minimizable: false,
-    };
-
-    try {
-      const position = await parentWindow.outerPosition();
-      const size = await parentWindow.innerSize();
-      const maximized = await parentWindow.isMaximized();
-      Object.assign(windowOptions, {
-        x: position.x,
-        y: position.y,
-        width: size.width,
-        height: size.height,
-        maximized: maximized,
-      });
-    } catch (err) {
-      console.warn("获取窗口信息失败:", err);
-    }
-
-    const webview = new WebviewWindow(windowLabel, windowOptions);
-
-    webview.once("tauri://created", function () {
-      console.log("窗口创建成功");
-      parentWindow?.hide();
-    });
-
-    webview.once("tauri://error", function (e) {
-      console.error("创建窗口失败:", e);
-      alert(`创建窗口失败: ${e.payload}`);
-    });
-
-    webview.once("tauri://destroyed", function () {
-      console.log("窗口销毁成功");
-      invoke("open_serverlist_window");
+      name: name,
+      icon: iconPlaceholder,
     });
   } catch (error) {
     console.error("打开窗口失败:", error);

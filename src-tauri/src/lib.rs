@@ -290,6 +290,7 @@ pub fn run() {
             commands::install,
             commands::open_filemanager_window,
             commands::open_serverlist_window,
+            commands::open_server_window,
             commands::get_maps,
             commands::delete_map_file,
             commands::delete_group,
