@@ -19,17 +19,13 @@
         "label": "filemanager",
         "title": "Nyaser Maps Downloader - 文件管理器",
         "url": "http://asset.localhost/filemanager/main.html",
-        "visible": false,
-        "minimizable": false,
-        "parent": "main"
+        "visible": false
       },
       {
         "label": "serverlist",
         "title": "Nyaser Maps Downloader - 服务器列表",
         "url": "http://asset.localhost/serverlist/main.html",
-        "visible": false,
-        "minimizable": false,
-        "parent": "main"
+        "visible": false
       }
     ],
     "security": {
