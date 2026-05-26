@@ -1501,11 +1501,12 @@ pub fn extract_dropped_file(file_path: String, app_handle: AppHandle) -> Result<
         return Err(format!("指定的路径不是文件: {}", file_path));
     }
 
-    // 提取文件名（不带扩展名）作为压缩包名称
+    // 提取文件名（不带扩展名）作为压缩包名称，去除首尾空格以处理 `xxx .zip` 这类情况
     let archive_name = path
         .file_stem()
         .and_then(|os_str| os_str.to_str())
         .unwrap_or("unknown")
+        .trim()
         .to_string();
 
     log_info!(

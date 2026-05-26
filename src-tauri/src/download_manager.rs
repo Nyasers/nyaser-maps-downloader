@@ -527,7 +527,7 @@ pub async fn download_and_extract(
             std::path::Path::new(&filename)
                 .file_stem()
                 .and_then(|os_str| os_str.to_str())
-                .map(|s| s.to_string())
+                .map(|s| s.trim().to_string())
         })
         .unwrap_or_else(|| "unknown".to_string());
 
